@@ -22,6 +22,7 @@ plt.plot(x, y, 'ro',label='square of x')
 plt.ylabel('square of x coordinate')
 plt.xlabel(' random generated x cordinate values')
 plt.show()
+print("This is just expiremental code to test the plotting of graph")
 
 
 
