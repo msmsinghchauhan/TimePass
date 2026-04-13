@@ -1,2 +1,8 @@
 {
+    "github-enterprise.uri": "https://n78/",
+    "python.testing.pytestArgs": [
+        "."
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true
 }

@@ -1,5 +1,7 @@
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain.chains import ConversationChain
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_core.chat_history import InMemoryChatMessageHistory
 
 import os
 os.environ["REQUESTS_CA_BUNDLE"] = "/Users/sinm/Library/CloudStorage/OneDrive-NetAppInc/Desktop/Mukesh/TimePass/NetApp_ECO_FMC_CA.cer"
@@ -37,15 +39,12 @@ llm = ChatOpenAI(model_name      = "gpt-4o",
 #print(completion)
 
 
-class MessageHistory:
-    def __init__(self, messages):
-        self.messages = messages
+store = {}
 
 def get_session_history(session_id):
-    # Return a MessageHistory object, not a plain list
-    return MessageHistory([
-        {"role": "user", "content": "Hello"}
-    ])
+    if session_id not in store:
+        store[session_id] = InMemoryChatMessageHistory()
+    return store[session_id]
     
 
 
