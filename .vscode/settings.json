@@ -1,5 +1,14 @@
 {
+<<<<<<< HEAD
     "python-envs.defaultEnvManager": "ms-python.python:conda",
     "python-envs.defaultPackageManager": "ms-python.python:conda",
     "python.defaultInterpreterPath": "C:/Users/msmsi/anaconda3/envs/islp/python.exe"
+=======
+    "github-enterprise.uri": "https://n78/",
+    "python.testing.pytestArgs": [
+        "."
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true
+>>>>>>> 26eff33f3271b31614b0c8152fa0f91cdccebb4d
 }

@@ -1,0 +1,1292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>BugBuddy – Jira Test Case Generator</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet"/>
+  <style>
+    :root {
+      --bb-blue:    #1F4E79;
+      --bb-accent:  #2E86AB;
+      --bb-success: #1a7a4a;
+    }
+    body { background: #eef2f7; font-size: .92rem; }
+
+    /* ---- navbar: title perfectly centred ---- */
+    .navbar { background: var(--bb-blue) !important; position: relative; }
+    .navbar-center {
+      position: absolute; left: 50%; transform: translateX(-50%);
+      font-weight: 700; font-size: 1.2rem; letter-spacing: .5px; color: #fff;
+      pointer-events: none; white-space: nowrap;
+    }
+
+    /* ---- left sidebar filter panel ---- */
+    #filterPanel {
+      position: sticky; top: 58px;
+      height: calc(100vh - 70px);
+      overflow-y: auto; padding-right: 4px;
+    }
+    #filterPanel::-webkit-scrollbar { width: 4px; }
+    #filterPanel::-webkit-scrollbar-thumb { background: #aaa; border-radius: 4px; }
+    .filter-header {
+      background: var(--bb-blue); color: #fff;
+      padding: 8px 12px; font-weight: 600;
+      border-radius: 6px 6px 0 0;
+    }
+    .filter-body { background: #fff; border: 1px solid #dee2e6; border-top: none;
+                   border-radius: 0 0 6px 6px; padding: 12px; }
+
+    /* ---- results table ---- */
+    #resultsTable th { background: var(--bb-blue); color: #fff; white-space: nowrap; }
+    #resultsWrapper { max-height: 42vh; overflow-y: auto; border-radius: 6px; }
+
+    /* ---- status badges ---- */
+    .status-done     { background:#d4edda; color:#155724; }
+    .status-progress { background:#fff3cd; color:#856404; }
+    .status-open     { background:#cce5ff; color:#004085; }
+    .status-default  { background:#e2e3e5; color:#383d41; }
+
+    /* ---- unified analyze bar ---- */
+    #analyzeBar {
+      background: linear-gradient(90deg, #1a3a5c, var(--bb-accent));
+      border-radius: 8px; padding: 12px 16px;
+    }
+
+    /* ---- defect tracker panel ---- */
+    #defectTracker .tracker-row {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 7px 10px; cursor: pointer;
+      border-left: 3px solid transparent;
+      transition: background .15s, border-color .15s;
+      font-size: .78rem;
+    }
+    #defectTracker .tracker-row:hover { background: rgba(255,255,255,.08); }
+    #defectTracker .tracker-row.active {
+      background: rgba(255,255,255,.12);
+      border-left-color: #0dcaf0;
+    }
+    #defectTracker .tracker-row .tr-icon { flex-shrink:0; margin-top:2px; font-size:.85rem; }
+    #defectTracker .tracker-row .tr-body { flex:1; min-width:0; }
+    #defectTracker .tracker-row .tr-key  { font-weight:700; color:#fff; }
+    #defectTracker .tracker-row .tr-sum  { color:#aaa; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    #defectTracker .tracker-row .tr-meta { font-size:.7rem; color:#6c757d; margin-top:2px; }
+    #defectTracker .tracker-row .tr-acts { flex-shrink:0; display:flex; gap:4px; opacity:0; transition:opacity .15s; }
+    #defectTracker .tracker-row:hover .tr-acts { opacity:1; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .tr-running .tr-icon i { display:inline-block; animation: spin .8s linear infinite; }
+
+    /* ---- test-case section ---- */
+    #tcSection { display: none; }
+    .tc-card { border-left: 4px solid var(--bb-accent); }
+    .step-list { padding-left: 1.2rem; }
+    .badge-type { font-size: .7rem; }
+    .tc-number { font-size: .8rem; color: #888; }
+    .tc-cards-grid { columns: 2; column-gap: 16px; }
+    .tc-cards-grid .tc-card { break-inside: avoid; }
+    .tc-issue-block + .tc-issue-block { border-top: 2px dashed #dee2e6; padding-top: 1rem; margin-top: .5rem; }
+
+    /* ---- list (table) view ---- */
+    #tcTableView { display: none; }
+    #tcTableView table { table-layout: fixed; }
+    #tcTableView th { background: var(--bb-blue); color:#fff; font-size:.78rem; position:sticky; top:0; z-index:1; }
+    #tcTableView td { font-size:.78rem; vertical-align:top; word-break:break-word; }
+    #tcTableView td.steps-col { white-space:pre-wrap; }
+    .tc-stats-bar .badge { font-size:.72rem; padding: .3em .6em; }
+    .view-toggle .btn { font-size:.78rem; padding:.25rem .6rem; }
+    .export-bar { background:rgba(0,0,0,.04); border-top:1px solid #dee2e6; }
+
+    @media (max-width: 768px) {
+      .tc-cards-grid { columns: 1; }
+    }
+    #overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.5); z-index: 9999;
+      align-items: center; justify-content: center;
+    }
+    #overlay.show { display: flex; }
+    #overlayMsg { color: #fff; font-size: 1.1rem; margin-top: 12px; }
+
+    /* ---- JQL preview ---- */
+    #jqlBox {
+      font-family: monospace; font-size: .78rem;
+      background: #f0f4f8; border: 1px dashed #aaa;
+      padding: 5px 10px; border-radius: 4px; word-break: break-all;
+    }
+
+    @media (max-width: 768px) {
+      #tcContainer { columns: 1; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ===================== NAVBAR ===================== -->
+<nav class="navbar navbar-dark sticky-top px-3 py-2">
+  <!-- left filler to help center -->
+  <span class="navbar-brand mb-0 invisible">
+    <i class="bi bi-bug-fill me-1"></i>BugBuddy
+  </span>
+  <!-- absolutely centred title -->
+  <span class="navbar-center">
+    <i class="bi bi-bug-fill me-1"></i>BugBuddy — Jira AI Test Case Generator
+  </span>
+  <!-- right: version tag + context button -->
+  <div class="d-flex align-items-center gap-2">
+    <button class="btn btn-sm btn-outline-light" onclick="openContextModal()"
+            title="Edit org-specific terminology injected into every LLM prompt">
+      <i class="bi bi-book me-1"></i>Org Context
+    </button>
+    <span class="text-white-50 small">v1.0</span>
+  </div>
+</nav>
+
+<!-- ===================== SPINNER OVERLAY ===================== -->
+<div id="overlay">
+  <div class="text-center">
+    <div class="spinner-border text-light" style="width:3rem;height:3rem;" role="status"></div>
+    <div id="overlayMsg">Loading…</div>
+  </div>
+</div>
+
+<!-- ===================== ORG CONTEXT MODAL ===================== -->
+<div class="modal fade" id="contextModal" tabindex="-1" aria-labelledby="contextModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--bb-blue);color:#fff">
+        <h5 class="modal-title" id="contextModalLabel">
+          <i class="bi bi-book me-2"></i>Organization Context
+          <small class="fw-normal ms-2 opacity-75">— injected into every LLM prompt</small>
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <div class="px-3 pt-2 pb-1 border-bottom" style="background:#f8f9fa">
+          <small class="text-muted">
+            <i class="bi bi-info-circle me-1"></i>
+            Edit this YAML file to add internal acronyms, component descriptions, and architecture notes.
+            Changes apply to the <strong>next</strong> analysis — no server restart needed.
+            File location: <code>org_context.yaml</code> next to <code>app.py</code>.
+          </small>
+        </div>
+        <div id="contextAlert" class="mx-3 mt-2"></div>
+        <textarea id="contextEditor"
+                  class="form-control font-monospace border-0 rounded-0"
+                  style="height:68vh; resize:none; font-size:.78rem; white-space:pre;"
+                  spellcheck="false"></textarea>
+      </div>
+      <div class="modal-footer">
+        <span id="contextStatus" class="text-muted small me-auto"></span>
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="saveOrgContext()">
+          <i class="bi bi-floppy me-1"></i>Save &amp; Apply
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MAIN LAYOUT ===================== -->
+<div class="container-fluid mt-2 px-3">
+  <div class="row g-3">
+
+    <!-- ==================== LEFT: FILTER SIDEBAR ==================== -->
+    <div class="col-xl-3 col-lg-3">
+      <div id="filterPanel">
+        <div class="filter-header">
+          <i class="bi bi-funnel me-1"></i> Filter Parameters
+        </div>
+        <div class="filter-body">
+
+          <!-- PROJECT -->
+          <div class="mb-2">
+            <label class="form-label fw-semibold mb-1">Project</label>
+            <select id="f_project" class="form-select form-select-sm">
+              <option value="">— All Projects —</option>
+              <option value="CFSHELF">CFSHELF</option>
+              <option value="CFBRIDGE">CFBRIDGE</option>
+              <option value="CFLOADER">CFLOADER</option>
+              <option value="CFBIOS">CFBIOS</option>
+              <option value="CCLP">CCLP</option>
+              <option value="CLP">CLP</option>
+              <option value="CONTAP">CONTAP</option>
+              {% for p in meta.projects %}
+              {% if p not in ["CFSHELF","CFBRIDGE","CFLOADER","CFBIOS","CCLP","CLP","CONTAP"] %}
+              <option value="{{ p }}">{{ p }}</option>
+              {% endif %}
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- TARGET RELEASE -->
+          <div class="mb-2">
+            <label class="form-label fw-semibold mb-1">Target Release</label>
+            <select id="f_target_release" class="form-select form-select-sm">
+              <option value="">— Select project first —</option>
+            </select>
+          </div>
+
+          <!-- FIX VERSION -->
+          <div class="mb-2">
+            <label class="form-label fw-semibold mb-1">Fix Version</label>
+            <select id="f_fix_version" class="form-select form-select-sm">
+              <option value="">— Any —</option>
+            </select>
+          </div>
+
+          <!-- COMPONENT -->
+          <div class="mb-2">
+            <label class="form-label fw-semibold mb-1">Component</label>
+            <select id="f_component" class="form-select form-select-sm" multiple size="3">
+              <option value="" disabled>— Select project first —</option>
+            </select>
+            <div class="form-text">Ctrl+click for multiple</div>
+          </div>
+
+          <!-- ISSUE TYPE -->
+          <div class="mb-2">
+            <label class="form-label fw-semibold mb-1">Issue Type</label>
+            <select id="f_issue_type" class="form-select form-select-sm" multiple size="3">
+              {% for it in meta.issue_types %}
+              <option value="{{ it }}">{{ it }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Ctrl+click for multiple</div>
+          </div>
+
+          <!-- STATUS -->
+          <div class="mb-2">
+            <label class="form-label fw-semibold mb-1">Status</label>
+            <select id="f_status" class="form-select form-select-sm" multiple size="3">
+              {% for s in meta.statuses %}
+              <option value="{{ s }}">{{ s }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Ctrl+click for multiple</div>
+          </div>
+
+          <!-- PRIORITY -->
+          <div class="mb-2">
+            <label class="form-label fw-semibold mb-1">Priority</label>
+            <select id="f_priority" class="form-select form-select-sm" multiple size="3">
+              {% for p in meta.priorities %}
+              <option value="{{ p }}">{{ p }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Ctrl+click for multiple</div>
+          </div>
+
+          <!-- ASSIGNEE -->
+          <div class="mb-2">
+            <label class="form-label fw-semibold mb-1">Assignee</label>
+            <input id="f_assignee" type="text" class="form-control form-control-sm" placeholder="username"/>
+          </div>
+
+          <!-- REPORTER -->
+          <div class="mb-2">
+            <label class="form-label fw-semibold mb-1">Reporter</label>
+            <input id="f_reporter" type="text" class="form-control form-control-sm" placeholder="username"/>
+          </div>
+
+          <!-- LABELS -->
+          <div class="mb-2">
+            <label class="form-label fw-semibold mb-1">Labels <small class="text-muted">(comma-sep)</small></label>
+            <input id="f_labels" type="text" class="form-control form-control-sm" placeholder="regression, nightly"/>
+          </div>
+
+          <!-- KEYWORD -->
+          <div class="mb-2">
+            <label class="form-label fw-semibold mb-1">Keyword <small class="text-muted">(full-text)</small></label>
+            <input id="f_keyword" type="text" class="form-control form-control-sm" placeholder="summary + desc + comments"/>
+          </div>
+
+          <!-- SUMMARY CONTAINS -->
+          <div class="mb-2">
+            <label class="form-label fw-semibold mb-1">Summary Contains</label>
+            <input id="f_summary" type="text" class="form-control form-control-sm" placeholder="text in summary"/>
+          </div>
+
+          <!-- CREATED AFTER / BEFORE -->
+          <div class="mb-2">
+            <label class="form-label fw-semibold mb-1">Created After</label>
+            <input id="f_created_after" type="date" class="form-control form-control-sm"/>
+          </div>
+          <div class="mb-2">
+            <label class="form-label fw-semibold mb-1">Created Before</label>
+            <input id="f_created_before" type="date" class="form-control form-control-sm"/>
+          </div>
+
+          <!-- SPRINT -->
+          <div class="mb-2">
+            <label class="form-label fw-semibold mb-1">Sprint</label>
+            <input id="f_sprint" type="text" class="form-control form-control-sm" placeholder="sprint name or ID"/>
+          </div>
+
+          <!-- EXTRA JQL -->
+          <div class="mb-2">
+            <label class="form-label fw-semibold mb-1">Extra JQL <small class="text-muted">(advanced)</small></label>
+            <textarea id="f_extra_jql" class="form-control form-control-sm" rows="2" placeholder="e.g. component = Storage"></textarea>
+          </div>
+
+          <!-- MAX RESULTS -->
+          <div class="mb-2">
+            <label class="form-label fw-semibold mb-1">Max Results</label>
+            <input id="f_max_results" type="number" class="form-control form-control-sm" value="200" min="1" max="1000"/>
+          </div>
+
+          <!-- ORDER BY -->
+          <div class="mb-3">
+            <label class="form-label fw-semibold mb-1">Order By</label>
+            <select id="f_order_by" class="form-select form-select-sm">
+              <option value="created DESC">Created ↓ newest</option>
+              <option value="created ASC">Created ↑ oldest</option>
+              <option value="updated DESC">Updated ↓</option>
+              <option value="priority ASC">Priority ↑ highest</option>
+            </select>
+          </div>
+
+          <div class="d-grid gap-2">
+            <button class="btn btn-primary" onclick="runSearch()">
+              <i class="bi bi-search me-1"></i>Search Jiras
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="resetFilters()">
+              <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+            </button>
+          </div>
+
+          <!-- PARENT MODE TOGGLE -->
+          <div class="mt-2 p-2 rounded" style="background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15)">
+            <div class="form-check form-switch mb-0">
+              <input class="form-check-input" type="checkbox" id="parentModeToggle"/>
+              <label class="form-check-label text-white fw-semibold small" for="parentModeToggle">
+                <i class="bi bi-diagram-3 me-1"></i>Parent Issue Mode
+              </label>
+            </div>
+            <div class="text-white-50" style="font-size:.72rem;margin-top:2px;padding-left:2.5rem">
+              Fetch parent (master) Jiras whose subtasks match the filter.
+              Analysis will include parent + subtask context.
+            </div>
+          </div>
+
+        </div><!-- filter-body -->
+      </div><!-- filterPanel -->
+    </div><!-- col left -->
+
+    <!-- ==================== RIGHT: MAIN CONTENT ==================== -->
+    <div class="col-xl-9 col-lg-9">
+
+      <!-- alert -->
+      <div id="alertBox"></div>
+
+      <!-- JQL preview -->
+      <div class="mb-2 d-none" id="jqlRow">
+        <small class="text-muted fw-semibold">Generated JQL:</small>
+        <div id="jqlBox"></div>
+      </div>
+
+      <!-- stats + table search -->
+      <div class="d-flex justify-content-between align-items-center mb-1 d-none" id="statsBar">
+        <span id="statsText" class="small text-muted"></span>
+        <div class="input-group input-group-sm" style="width:240px;">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input type="text" id="tableSearch" class="form-control"
+                 placeholder="Filter table…" oninput="filterTable()"/>
+        </div>
+      </div>
+
+      <!-- results table -->
+      <div id="resultsWrapper" class="d-none mb-3 shadow-sm">
+        <table class="table table-hover table-bordered table-sm mb-0" id="resultsTable">
+          <thead>
+            <tr>
+              <th><input type="checkbox" id="selectAll" title="Select all"
+                         onchange="toggleSelectAll(this)"/></th>
+              <th>#</th>
+              <th>Key</th>
+              <th>Summary</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Priority</th>
+              <th>Assignee</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody"></tbody>
+        </table>
+      </div>
+
+      <!-- ====== UNIFIED ANALYZE BAR ====== -->
+      <div id="analyzeBar" class="mb-4">
+        <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
+          <span class="text-white fw-semibold">
+            <i class="bi bi-cpu me-1"></i>Analyze
+          </span>
+
+          <!-- Jira source mode -->
+          <div class="d-flex gap-3 text-white">
+            <div class="form-check mb-0">
+              <input class="form-check-input" type="radio" name="analyzeMode"
+                     id="modeList" value="list" checked onchange="toggleAnalyzeMode()"/>
+              <label class="form-check-label" for="modeList">Selected from list</label>
+            </div>
+            <div class="form-check mb-0">
+              <input class="form-check-input" type="radio" name="analyzeMode"
+                     id="modeManual" value="manual" onchange="toggleAnalyzeMode()"/>
+              <label class="form-check-label" for="modeManual">Specific Jira key</label>
+            </div>
+          </div>
+
+          <div id="manualKeyWrap" style="display:none;">
+            <input id="manualKey" type="text" class="form-control form-control-sm"
+                   placeholder="e.g. CFSHELF-5078" style="width:180px;"
+                   onkeydown="if(event.key==='Enter') doAnalyze()"/>
+          </div>
+
+          <span id="selectedCount" class="text-white-50 small"></span>
+        </div>
+
+        <!-- LLM config + Run Analysis button row -->
+        <div class="d-flex flex-wrap align-items-center gap-2 pt-2"
+             style="border-top:1px solid rgba(255,255,255,.2)">
+          <i class="bi bi-robot text-white-50"></i>
+          <!-- Provider -->
+          <select id="llmProvider" class="form-select form-select-sm" style="width:auto;"
+                  onchange="_updateModelOptions()">
+            <option value="netapp" selected>NetApp LLM Proxy</option>
+            <option value="openai">OpenAI GPT</option>
+            <option value="anthropic">Anthropic Claude</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="mock">Mock (no key)</option>
+          </select>
+          <!-- Model -->
+          <select id="llmModel" class="form-select form-select-sm" style="width:auto;"></select>
+          <!-- API Key -->
+          <input id="llmApiKey" type="password" class="form-control form-control-sm"
+                 placeholder="API key (optional if set server-side)" style="width:240px;"/>
+          <button class="btn btn-light fw-semibold ms-auto" onclick="doAnalyze()">
+            <i class="bi bi-play-circle me-1 text-success"></i>Run Analysis
+          </button>
+        </div>
+      </div>
+
+      <!-- ====== ANALYSIS WORKSPACE (two-panel) ====== -->
+      <div id="analysisWorkspace" style="display:none;">
+        <div class="d-flex gap-3" style="align-items:flex-start;">
+
+          <!-- ── LEFT: Defect tracker ──────────────────────────────── -->
+          <div id="defectTracker"
+               style="width:300px; flex-shrink:0; position:sticky; top:62px;
+                      max-height:calc(100vh - 80px); display:flex; flex-direction:column;">
+            <div class="card shadow-sm" style="border:none; background:#0d253f; flex:1; overflow:hidden; display:flex; flex-direction:column;">
+
+              <!-- tracker header -->
+              <div class="px-3 py-2 d-flex justify-content-between align-items-center"
+                   style="background:#0a1e33; border-bottom:1px solid rgba(255,255,255,.15); flex-shrink:0;">
+                <span class="text-white fw-semibold" style="font-size:.85rem;">
+                  <i class="bi bi-list-check me-1"></i>Defect Queue
+                  <span id="trackerCountBadge" class="badge ms-1" style="background:#2E86AB;font-size:.68rem"></span>
+                </span>
+                <div class="d-flex gap-2 align-items-center">
+                  <span id="trackerProgress" class="text-white-50" style="font-size:.72rem;"></span>
+                  <button id="btnExportAll" class="btn btn-warning fw-semibold d-none py-0 px-2"
+                          onclick="exportAll()" title="Export all to Excel" style="font-size:.72rem;">
+                    <i class="bi bi-file-earmark-arrow-down"></i> All
+                  </button>
+                </div>
+              </div>
+
+              <!-- tracker search -->
+              <div class="px-2 pt-2 pb-1" style="flex-shrink:0; background:#0d253f;">
+                <input id="trackerSearch" type="text" class="form-control form-control-sm"
+                       placeholder="Filter keys / summaries…"
+                       style="background:rgba(255,255,255,.07); border-color:rgba(255,255,255,.2);
+                              color:#fff; font-size:.78rem;"
+                       oninput="filterTrackerList(this.value)"/>
+              </div>
+
+              <!-- tracker rows -->
+              <div id="trackerList" style="overflow-y:auto; flex:1; padding:4px 0;">
+                <!-- .tracker-row divs injected per defect -->
+              </div>
+
+              <!-- legend -->
+              <div class="px-3 py-2 d-flex gap-3"
+                   style="background:#0a1e33; flex-shrink:0; border-top:1px solid rgba(255,255,255,.1); font-size:.7rem;">
+                <span style="color:#0dcaf0;"><i class="bi bi-arrow-repeat"></i> Running</span>
+                <span style="color:#198754;"><i class="bi bi-check-circle-fill"></i> Done</span>
+                <span style="color:#dc3545;"><i class="bi bi-x-circle-fill"></i> Error</span>
+                <span style="color:#6c757d;"><i class="bi bi-clock"></i> Pending</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── RIGHT: Test case viewer ──────────────────────────── -->
+          <div style="flex:1; min-width:0;">
+
+            <!-- empty state -->
+            <div id="tcEmptyState" class="text-center text-muted py-5">
+              <i class="bi bi-arrow-left-circle" style="font-size:2.5rem; opacity:.4;"></i>
+              <p class="mt-2">Select a defect from the queue to view its test cases.</p>
+            </div>
+
+            <!-- test case viewer -->
+            <div id="tcSection" style="display:none;">
+              <div class="card shadow-sm mb-4">
+
+                <!-- header -->
+                <div class="card-header py-2" style="background:var(--bb-success); color:#fff;">
+                  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <span class="fw-bold">
+                      <i class="bi bi-check2-square me-1"></i>
+                      Test Cases &mdash; <span id="tcIssueKey"></span>
+                      <span id="tcTotalBadge" class="badge bg-light text-dark ms-1" style="font-size:.72rem"></span>
+                    </span>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                      <div class="btn-group view-toggle" role="group">
+                        <button id="btnCardView" class="btn btn-sm btn-light active"
+                                onclick="setView('cards')" title="Card view">
+                          <i class="bi bi-grid-3x2-gap"></i>
+                        </button>
+                        <button id="btnTableView" class="btn btn-sm btn-light"
+                                onclick="setView('table')" title="Table view">
+                          <i class="bi bi-table"></i>
+                        </button>
+                      </div>
+                      <button class="btn btn-sm btn-light" onclick="exportExcel()" title="Export to Excel">
+                        <i class="bi bi-file-earmark-excel-fill text-success"></i> .xlsx
+                      </button>
+                      <button class="btn btn-sm btn-light" onclick="exportCSV()" title="Export to CSV">
+                        <i class="bi bi-filetype-csv text-primary"></i> .csv
+                      </button>
+                      <button class="btn btn-sm btn-light"
+                              onclick="document.getElementById('tcSection').style.display='none';document.getElementById('tcEmptyState').style.display='';"
+                              title="Close"><i class="bi bi-x-lg"></i>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- stats bar -->
+                <div class="px-3 pt-2 pb-1 tc-stats-bar d-flex flex-wrap align-items-center gap-2"
+                     id="tcStatsBar" style="background:#f0f7f0;border-bottom:1px solid #dee2e6;">
+                  <small class="text-muted me-1">By type:</small>
+                  <span id="tcStatsContent"></span>
+                </div>
+
+                <!-- summary line -->
+                <div id="tcSummaryBar" class="mx-3 mt-2 mb-1 p-2 rounded" style="background:#eafaf1;font-size:.85rem;"></div>
+
+                <div class="card-body p-3">
+                  <!-- card view (default) -->
+                  <div id="tcCardView">
+                    <div id="tcContainer"></div>
+                  </div>
+
+                  <!-- table / list view -->
+                  <div id="tcTableView">
+                    <div style="overflow-x:auto; max-height:65vh; overflow-y:auto;">
+                      <table class="table table-bordered table-hover table-sm mb-0" id="tcTable">
+                        <thead>
+                          <tr>
+                            <th style="width:55px">TC#</th>
+                            <th style="width:80px">Type</th>
+                            <th style="width:260px">Title</th>
+                            <th style="width:180px">Pre-conditions</th>
+                            <th style="width:320px">Steps</th>
+                            <th style="width:220px">Expected</th>
+                          </tr>
+                        </thead>
+                        <tbody id="tcTableBody"></tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div><!-- /tcSection -->
+          </div><!-- /right panel -->
+        </div><!-- /d-flex -->
+      </div><!-- /analysisWorkspace -->
+
+    </div><!-- col right -->
+  </div><!-- row -->
+</div><!-- container -->
+
+
+<script>
+// =====================================================================
+// Globals
+// =====================================================================
+let _currentIssueKey = "";
+let _allResults  = []; // accumulates every {issue_key, summary, url, provider, model, test_cases} from this session
+let _currentView = "cards"; // "cards" | "table"
+
+// LLM provider/model/keys are configured server-side via .env — not selectable in the UI.
+
+// =====================================================================
+// Project → versions loader
+// =====================================================================
+document.getElementById("f_project").addEventListener("change", function () {
+  const proj = this.value;
+  ["f_target_release","f_fix_version"].forEach(id =>
+    document.getElementById(id).innerHTML = '<option value="">— Loading… —</option>');
+  document.getElementById("f_component").innerHTML = '<option value="" disabled>— Loading… —</option>';
+  if (!proj) { resetVersionDropdowns(); return; }
+  fetch(`/api/versions?project=${encodeURIComponent(proj)}`)
+    .then(r => r.json())
+    .then(versions => {
+      ["f_target_release","f_fix_version"].forEach(id => {
+        const sel = document.getElementById(id);
+        sel.innerHTML = '<option value="">— Any —</option>';
+        versions.forEach(v => sel.insertAdjacentHTML("beforeend",
+          `<option value="${v}">${v}</option>`));
+      });
+    })
+    .catch(() => resetVersionDropdowns());
+  fetch(`/api/components?project=${encodeURIComponent(proj)}`)
+    .then(r => r.json())
+    .then(comps => {
+      const sel = document.getElementById("f_component");
+      sel.innerHTML = comps.length
+        ? comps.map(c => `<option value="${c}">${c}</option>`).join("")
+        : '<option value="" disabled>— No components found —</option>';
+    })
+    .catch(() => {
+      document.getElementById("f_component").innerHTML = '<option value="" disabled>— Select project first —</option>';
+    });
+});
+
+function resetVersionDropdowns() {
+  ["f_target_release","f_fix_version"].forEach(id =>
+    document.getElementById(id).innerHTML =
+      '<option value="">— Select project first —</option>');
+  document.getElementById("f_component").innerHTML = '<option value="" disabled>— Select project first —</option>';
+}
+
+// =====================================================================
+// Build payload
+// =====================================================================
+function buildPayload() {
+  const sel = id => [...document.getElementById(id).selectedOptions]
+                      .map(o => o.value).filter(Boolean);
+  const val = id => document.getElementById(id).value.trim();
+  return {
+    project: val("f_project"), target_release: val("f_target_release"),
+    fix_version: val("f_fix_version"), issue_type: sel("f_issue_type"),
+    status: sel("f_status"), priority: sel("f_priority"),
+    components: sel("f_component"),
+    assignee: val("f_assignee"), reporter: val("f_reporter"),
+    labels: val("f_labels"), keyword: val("f_keyword"),
+    summary_contains: val("f_summary"), created_after: val("f_created_after"),
+    created_before: val("f_created_before"), sprint: val("f_sprint"),
+    extra_jql: val("f_extra_jql"),
+    max_results: parseInt(val("f_max_results")) || 200,
+    order_by: val("f_order_by"),
+  };
+}
+
+// =====================================================================
+// Search
+// =====================================================================
+function runSearch() {
+  showOverlay("Querying Jira…");
+  clearAlert();
+  const parentMode = document.getElementById("parentModeToggle")?.checked || false;
+  const payload = Object.assign(buildPayload(), { parent_mode: parentMode });
+  fetch("/api/search", {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify(payload),
+  })
+  .then(r => r.json())
+  .then(data => {
+    hideOverlay();
+    if (data.error) { showAlert("danger", data.error); return; }
+    showJQL(data.jql);
+    renderResults(data.issues, data.parent_mode);
+  })
+  .catch(e => { hideOverlay(); showAlert("danger", `Network error: ${e}`); });
+}
+
+// =====================================================================
+// Render results table
+// =====================================================================
+function statusClass(s) {
+  s = (s||"").toLowerCase();
+  if (s.includes("done")||s.includes("closed")||s.includes("resolved")) return "status-done";
+  if (s.includes("progress")||s.includes("implementation")) return "status-progress";
+  if (s.includes("open")||s.includes("new")) return "status-open";
+  return "status-default";
+}
+
+function renderResults(issues, parentMode) {
+  const tbody = document.getElementById("resultsBody");
+  tbody.innerHTML = "";
+  issues.forEach((iss, idx) => {
+    const badge = `<span class="badge rounded-pill px-2 ${statusClass(iss.status)}">${esc(iss.status)}</span>`;
+    const subtasksBadge = (parentMode && iss.matched_subtasks && iss.matched_subtasks.length)
+      ? `<br><small class="text-info" title="Matched subtasks: ${esc(iss.matched_subtasks.join(', '))}">
+           <i class="bi bi-diagram-3"></i> ${iss.matched_subtasks.length} subtask(s): ${esc(iss.matched_subtasks.slice(0,3).join(', '))}${iss.matched_subtasks.length > 3 ? '…' : ''}
+         </small>` : "";
+    tbody.insertAdjacentHTML("beforeend", `
+      <tr data-key="${esc(iss.key)}" data-summary="${esc(iss.summary)}">
+        <td><input type="checkbox" class="row-check" value="${esc(iss.key)}"
+                   onchange="updateSelectedCount()"/></td>
+        <td class="text-muted">${idx+1}</td>
+        <td><a href="${esc(iss.url)}" target="_blank"
+               class="fw-semibold text-decoration-none">${esc(iss.key)}</a></td>
+        <td><span title="${esc(iss.summary)}">${esc(truncate(iss.summary,70))}</span>${subtasksBadge}</td>
+        <td><small>${esc(iss.issue_type)}</small></td>
+        <td>${badge}</td>
+        <td><small>${esc(iss.priority)}</small></td>
+        <td><small>${esc(iss.assignee)}</small></td>
+      </tr>`);
+  });
+  document.getElementById("resultsWrapper").classList.remove("d-none");
+  document.getElementById("statsBar").classList.remove("d-none");
+  document.getElementById("statsText").textContent =
+    `${issues.length} ${parentMode ? 'parent' : ''}issue${issues.length !== 1 ? "s" : ""} found`;
+  document.getElementById("selectAll").checked = false;
+  updateSelectedCount();
+}
+
+// =====================================================================
+// Select-all + count
+// =====================================================================
+function toggleSelectAll(master) {
+  document.querySelectorAll(".row-check").forEach(cb => cb.checked = master.checked);
+  updateSelectedCount();
+}
+function updateSelectedCount() {
+  const n = document.querySelectorAll(".row-check:checked").length;
+  document.getElementById("selectedCount").textContent = n > 0 ? `${n} selected` : "";
+}
+
+// =====================================================================
+// Filter table (client-side search)
+// =====================================================================
+function filterTable() {
+  const q = document.getElementById("tableSearch").value.toLowerCase();
+  document.querySelectorAll("#resultsBody tr").forEach(row => {
+    row.style.display =
+      (row.dataset.key + " " + row.dataset.summary).toLowerCase().includes(q) ? "" : "none";
+  });
+}
+
+// =====================================================================
+// Analyze mode toggle
+// =====================================================================
+function toggleAnalyzeMode() {
+  const isManual = document.getElementById("modeManual").checked;
+  document.getElementById("manualKeyWrap").style.display = isManual ? "" : "none";
+}
+
+// =====================================================================
+// LLM provider/model dropdowns
+// =====================================================================
+const _PROVIDER_MODELS = {
+  netapp:    ["gpt-4.1", "gpt-4.1-mini", "gpt-4o"],
+  openai:    ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1", "o1-mini"],
+  anthropic: ["claude-3-5-sonnet-20241022", "claude-3-opus-20240229",
+              "claude-3-sonnet-20240229", "claude-3-haiku-20240307"],
+  gemini:    ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
+  mock:      ["mock"],
+};
+
+function _updateModelOptions() {
+  const prov  = document.getElementById("llmProvider").value;
+  const sel   = document.getElementById("llmModel");
+  const models = _PROVIDER_MODELS[prov] || [];
+  sel.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join("");
+  // show/hide API key input
+  document.getElementById("llmApiKey").placeholder =
+    prov === "mock" ? "(no key needed)" :
+    prov === "netapp" ? "NETAPP_LLM_KEY" :
+    prov === "openai" ? "sk-..." :
+    prov === "anthropic" ? "sk-ant-..." : "AIza...";
+}
+
+// Initialise model list on page load
+document.addEventListener("DOMContentLoaded", _updateModelOptions);
+
+// =====================================================================
+// Unified analyze dispatcher
+// =====================================================================
+function doAnalyze() {
+  if (document.getElementById("modeManual").checked) {
+    const key = document.getElementById("manualKey").value.trim().toUpperCase();
+    if (!key) { showAlert("warning", "Please enter a Jira key."); return; }
+    analyzeBatch([key]);
+  } else {
+    const keys = [...document.querySelectorAll(".row-check:checked")].map(cb => cb.value);
+    if (keys.length === 0) {
+      showAlert("warning",
+        "Select at least one Jira from the results list, or switch to 'Specific Jira key' mode.");
+      return;
+    }
+    analyzeBatch(keys);
+  }
+}
+
+// =====================================================================
+// Defect tracker helpers
+// =====================================================================
+// Per-issue stored rendered HTML (card + table rows) for instant switching
+const _issueCardHTML  = {};   // key -> HTML string for card view
+const _issueTableRows = {};   // key -> array of TR elements
+const _issueData      = {};   // key -> full data object
+
+function _buildTrackerPanel(keys) {
+  const list  = document.getElementById("trackerList");
+  const badge = document.getElementById("trackerCountBadge");
+  list.innerHTML = "";
+  badge.textContent = `${keys.length}`;
+
+  keys.forEach(key => {
+    const row = document.createElement("div");
+    row.id = `trow_${key}`;
+    row.className = "tracker-row";
+    row.dataset.key = key;
+    row.innerHTML =
+      `<div class="tr-icon" id="tri_${key}"><i class="bi bi-clock" style="color:#6c757d;"></i></div>
+       <div class="tr-body">
+         <div class="tr-key">${esc(key)}</div>
+         <div class="tr-sum" id="trs_${key}">–</div>
+         <div class="tr-meta" id="trm_${key}">pending</div>
+       </div>
+       <div class="tr-acts">
+         <button class="btn btn-xs btn-outline-light py-0 px-1" style="font-size:.68rem;"
+                 onclick="event.stopPropagation(); window.location.href='/api/export/${esc(key)}'"
+                 title="Download Excel" id="trxl_${key}"></button>
+         <button class="btn btn-xs btn-outline-light py-0 px-1" style="font-size:.68rem;"
+                 onclick="event.stopPropagation(); exportIssueCsv('${esc(key)}')"
+                 title="Download CSV" id="trcsv_${key}"></button>
+       </div>`;
+    /* Hide export buttons until done */
+    row.querySelector(`#trxl_${key}`).style.display = "none";
+    row.querySelector(`#trcsv_${key}`).style.display = "none";
+    row.addEventListener("click", () => selectIssue(key));
+    list.appendChild(row);
+  });
+
+  document.getElementById("analysisWorkspace").style.display = "block";
+  document.getElementById("analysisWorkspace").scrollIntoView({behavior:"smooth", block:"start"});
+}
+
+function _setTrackerStatus(key, status, summary, tcCount) {
+  const row   = document.getElementById(`trow_${key}`);
+  const icon  = document.getElementById(`tri_${key}`);
+  const sumEl = document.getElementById(`trs_${key}`);
+  const meta  = document.getElementById(`trm_${key}`);
+  if (!row) return;
+
+  const iconMap  = { pending:"bi-clock", running:"bi-arrow-repeat", done:"bi-check-circle-fill", error:"bi-x-circle-fill" };
+  const colorMap = { pending:"#6c757d",  running:"#0dcaf0",         done:"#198754",              error:"#dc3545" };
+  const color = colorMap[status] || "#6c757d";
+
+  icon.innerHTML = `<i class="bi ${iconMap[status]}" style="color:${color};"></i>`;
+  if (status === "running") row.classList.add("tr-running"); else row.classList.remove("tr-running");
+
+  if (summary) sumEl.textContent = truncate(summary, 45);
+
+  if (status === "done") {
+    meta.innerHTML = `<span style="color:#198754;">${tcCount} test case${tcCount !== 1 ? "s" : ""} generated</span>`;
+    const xlBtn  = document.getElementById(`trxl_${key}`);
+    const csvBtn = document.getElementById(`trcsv_${key}`);
+    xlBtn.style.display  = "";
+    csvBtn.style.display = "";
+    xlBtn.innerHTML  = `<i class="bi bi-file-earmark-excel-fill text-success"></i>`;
+    csvBtn.innerHTML = `<i class="bi bi-filetype-csv" style="color:#0d6efd;"></i>`;
+  } else if (status === "error") {
+    meta.innerHTML = `<span style="color:#dc3545;">analysis failed</span>`;
+  } else if (status === "running") {
+    meta.textContent = "analyzing…";
+  }
+}
+
+function selectIssue(key) {
+  // Highlight active row
+  document.querySelectorAll(".tracker-row").forEach(r => r.classList.remove("active"));
+  const row = document.getElementById(`trow_${key}`);
+  if (row) row.classList.add("active");
+
+  const data = _issueData[key];
+  if (!data) return;  // still pending/error
+
+  _currentIssueKey = key;
+
+  // Populate card view
+  document.getElementById("tcContainer").innerHTML = _issueCardHTML[key] || "";
+
+  // Populate table view
+  const tbody = document.getElementById("tcTableBody");
+  tbody.innerHTML = "";
+  (_issueTableRows[key] || []).forEach(tr => tbody.appendChild(tr.cloneNode(true)));
+
+  // Update header / stats
+  const providerTag = data.provider
+    ? ` <span class="badge ms-1" style="background:#2E86AB;font-size:.7rem">${esc(data.provider)} / ${esc(data.model)}</span>`
+    : "";
+  document.getElementById("tcIssueKey").textContent = data.issue_key;
+  document.getElementById("tcSummaryBar").innerHTML =
+    `<strong>${esc(data.issue_key)}</strong>: ${esc(data.summary)}${providerTag}
+     <a href="${esc(data.url)}" target="_blank" class="ms-2 small">
+       <i class="bi bi-box-arrow-up-right"></i> Open in Jira</a>`;
+  _updateStats([data]);
+
+  document.getElementById("tcEmptyState").style.display = "none";
+  document.getElementById("tcSection").style.display = "block";
+  setView(_currentView);
+}
+
+function filterTrackerList(q) {
+  q = q.toLowerCase();
+  document.querySelectorAll(".tracker-row").forEach(row => {
+    const key = row.dataset.key || "";
+    const sum = (document.getElementById(`trs_${row.dataset.key}`) || {}).textContent || "";
+    row.style.display = (key + " " + sum).toLowerCase().includes(q) ? "" : "none";
+  });
+}
+
+// =====================================================================
+// Analyze one or more issues sequentially (batch-safe)
+// =====================================================================
+async function analyzeBatch(keys) {
+  clearAlert();
+  const total = keys.length;
+
+  // Reset stored per-issue data
+  _allResults.length = 0;
+  Object.keys(_issueCardHTML).forEach(k => delete _issueCardHTML[k]);
+  Object.keys(_issueTableRows).forEach(k => delete _issueTableRows[k]);
+  Object.keys(_issueData).forEach(k => delete _issueData[k]);
+
+  // Build tracker
+  _buildTrackerPanel(keys);
+  document.getElementById("btnExportAll").classList.add("d-none");
+  document.getElementById("tcSection").style.display = "none";
+  document.getElementById("tcEmptyState").style.display = "";
+
+  let succeeded = 0;
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i].trim().toUpperCase();
+    _setTrackerStatus(key, "running");
+    document.getElementById("trackerProgress").textContent = `${i+1}/${total}`;
+    showOverlay(`Analyzing ${i+1} of ${total}: ${key}…`);
+    try {
+      const provider = document.getElementById("llmProvider")?.value || "";
+      const model    = document.getElementById("llmModel")?.value || "";
+      const apiKey   = document.getElementById("llmApiKey")?.value || "";
+      const resp = await fetch("/api/analyze", {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ issue_key: key, provider, model, api_key: apiKey,
+                               include_parent: true }),
+      });
+      const data = await resp.json();
+      if (data.error) {
+        _setTrackerStatus(key, "error");
+        showAlert("danger", `[${key}] ${data.error}`);
+      } else {
+        _storeIssueRender(data);
+        _allResults.push(data);
+        const parentNote = data.parent_key ? ` (parent: ${data.parent_key})` : "";
+        _setTrackerStatus(key, "done", data.summary + parentNote, data.test_cases.length);
+        succeeded++;
+        // Auto-select first completed issue
+        if (succeeded === 1) selectIssue(key);
+      }
+    } catch (e) {
+      _setTrackerStatus(key, "error");
+      showAlert("danger", `[${key}] Network error: ${e}`);
+    }
+  }
+  document.getElementById("trackerProgress").textContent = `${succeeded}/${total} done`;
+  if (_allResults.length > 1) {
+    const btn = document.getElementById("btnExportAll");
+    btn.classList.remove("d-none");
+    btn.innerHTML = `<i class="bi bi-file-earmark-arrow-down"></i> All (${_allResults.length})`;
+  }
+  hideOverlay();
+}
+
+// =====================================================================
+// Store per-issue rendered HTML (called once per issue when data arrives)
+// =====================================================================
+const _TYPE_COLORS = {
+  Regression:"#6f42c1", Functional:"#0d6efd", Negative:"#dc3545",
+  Performance:"#fd7e14", Boundary:"#198754",
+};
+const _TYPE_LABELS = {
+  Regression:"REGR", Functional:"FUNC", Negative:"NEG",
+  Performance:"PERF", Boundary:"BNDR",
+};
+
+function _storeIssueRender(data) {
+  _issueData[data.issue_key] = data;
+
+  // ---- build card HTML (string) ---------------------------------
+  const cardParts = [];
+  data.test_cases.forEach(tc => {
+    const stepsHtml = (tc.steps||[]).map(s => `<li>${esc(s.replace(/^\d+[.)\s]+/, ""))}</li>`).join("");
+    const color = _TYPE_COLORS[tc.test_type] || "#888";
+    cardParts.push(
+      `<div class="card tc-card mb-3 shadow-sm">
+         <div class="card-body p-3">
+           <div class="d-flex justify-content-between align-items-start mb-1">
+             <span class="tc-number">${esc(tc.tc_number)}</span>
+             <span class="badge badge-type" style="background:${color}">${_TYPE_LABELS[tc.test_type]||esc(tc.test_type)}</span>
+           </div>
+           <h6 class="fw-semibold mb-2">${esc(tc.title)}</h6>
+           ${tc.preconditions
+             ? `<p class="mb-1 small"><strong>Pre-conditions:</strong> ${esc(tc.preconditions)}</p>` : ""}
+           <p class="mb-1 small fw-semibold">Steps:</p>
+           <ol class="step-list small mb-2">${stepsHtml}</ol>
+           <p class="mb-0 small"><strong>Expected:</strong> ${esc(tc.expected)}</p>
+         </div>
+       </div>`
+    );
+  });
+  _issueCardHTML[data.issue_key] =
+    `<div class="tc-cards-grid">${cardParts.join("")}</div>`;
+
+  // ---- build table TR elements ----------------------------------
+  const rows = [];
+  data.test_cases.forEach(tc => {
+    const color = _TYPE_COLORS[tc.test_type] || "#888";
+    const steps = (tc.steps||[]).map((s, i) => `${i+1}. ${s.replace(/^\d+[.)\s]+/, "")}`).join("\n");
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td class="text-muted">${esc(tc.tc_number)}</td>
+       <td><span class="badge" style="background:${color};font-size:.68rem">${_TYPE_LABELS[tc.test_type]||esc(tc.test_type)}</span></td>
+       <td class="fw-semibold small">${esc(tc.title)}</td>
+       <td class="small">${esc(tc.preconditions||"")}</td>
+       <td class="steps-col small">${esc(steps)}</td>
+       <td class="small">${esc(tc.expected||"")}</td>`;
+    rows.push(tr);
+  });
+  _issueTableRows[data.issue_key] = rows;
+}
+
+// ---- Stats pills -----------------------------------------------
+function _updateStats(results) {
+  results = results || _allResults;
+  const counts = {};
+  let total = 0;
+  results.forEach(r => {
+    (r.test_cases || []).forEach(tc => {
+      const t = tc.test_type || "Other";
+      counts[t] = (counts[t] || 0) + 1;
+      total++;
+    });
+  });
+  const bgMap = _TYPE_COLORS;
+  const pills = Object.entries(counts)
+    .map(([t, n]) => {
+      const bg = bgMap[t] || "#6c757d";
+      return `<span class="badge me-1" style="background:${bg}">${esc(t)}: ${n}</span>`;
+    }).join("");
+  document.getElementById("tcStatsContent").innerHTML = pills;
+  document.getElementById("tcTotalBadge").textContent = `${total} total`;
+}
+
+// ---- View toggle -----------------------------------------------
+function setView(mode) {
+  _currentView = mode;
+  document.getElementById("tcCardView").style.display  = mode === "cards" ? "" : "none";
+  document.getElementById("tcTableView").style.display = mode === "table" ? "" : "none";
+  document.getElementById("btnCardView").classList.toggle("active", mode === "cards");
+  document.getElementById("btnTableView").classList.toggle("active", mode === "table");
+}
+
+// =====================================================================
+// Export functions
+// =====================================================================
+
+// Export current single issue to xlsx (server-side)
+function exportExcel() {
+  if (_currentIssueKey) window.location.href = `/api/export/${_currentIssueKey}`;
+}
+
+// Export single issue to CSV (client-side, no server call)
+function exportIssueCsv(issueKey) {
+  const result = _allResults.find(r => r.issue_key === issueKey.toUpperCase())
+                 || (_currentIssueKey.toUpperCase() === issueKey.toUpperCase()
+                     ? _allResults.find(r => r.issue_key === _currentIssueKey)
+                     : null);
+  if (!result) { showAlert("warning", "No data found for " + issueKey); return; }
+  _downloadCsv([result], `TestCases_${issueKey}.csv`);
+}
+
+// Export last single issue to CSV
+function exportCSV() {
+  const result = _allResults.find(r => r.issue_key === _currentIssueKey);
+  if (!result) { showAlert("warning", "No results to export. Run analysis first."); return; }
+  _downloadCsv([result], `TestCases_${_currentIssueKey}.csv`);
+}
+
+// Export ALL analyzed issues — server-side multi-sheet Excel
+async function exportAll() {
+  if (_allResults.length === 0) { showAlert("warning", "No results to export."); return; }
+  showOverlay("Building combined workbook\u2026");
+  try {
+    const keys = _allResults.map(r => r.issue_key);
+    const resp = await fetch("/api/export-batch", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({keys}),
+    });
+    hideOverlay();
+    if (!resp.ok) {
+      const e = await resp.json();
+      showAlert("danger", e.error || "Export failed");
+      return;
+    }
+    // Trigger download from blob
+    const blob = await resp.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `TestCases_Batch_${keys.join("_").slice(0,60)}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    hideOverlay();
+    showAlert("danger", `Export error: ${e}`);
+  }
+}
+
+// ---- CSV builder (pure client-side) ----------------------------
+function _downloadCsv(results, filename) {
+  const headers = ["TC#","Jira Key","Test Type","Title",
+                   "Pre-conditions","Steps","Expected"];
+  const rows = [headers];
+  results.forEach(r => {
+    (r.test_cases || []).forEach(tc => {
+      const steps = (tc.steps||[]).map((s,i) => `${i+1}. ${s.replace(/^\d+[.)\s]+/, "")}`).join(" | ");
+      rows.push([
+        tc.tc_number||"", r.issue_key||"", _TYPE_LABELS[tc.test_type]||tc.test_type||"",
+        tc.title||"", tc.preconditions||"",
+        steps, tc.expected||"",
+      ]);
+    });
+  });
+  const csv = rows.map(r =>
+    r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")
+  ).join("\r\n");
+  const blob = new Blob(["\uFEFF" + csv], {type: "text/csv;charset=utf-8;"});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function closeTcSection() {
+  document.getElementById("tcSection").style.display = "none";
+  document.getElementById("tcEmptyState").style.display = "";
+}
+
+// =====================================================================
+// Reset filters
+// =====================================================================
+function resetFilters() {
+  ["f_assignee","f_reporter","f_labels","f_keyword","f_summary",
+   "f_created_after","f_created_before","f_sprint","f_extra_jql"]
+    .forEach(id => document.getElementById(id).value = "");
+  ["f_project","f_target_release","f_fix_version","f_order_by"]
+    .forEach(id => document.getElementById(id).selectedIndex = 0);
+  ["f_issue_type","f_status","f_priority"]
+    .forEach(id => [...document.getElementById(id).options]
+                     .forEach(o => o.selected = false));
+  document.getElementById("f_max_results").value = 200;
+}
+
+// =====================================================================
+// UI helpers
+// =====================================================================
+function showOverlay(msg) {
+  document.getElementById("overlayMsg").textContent = msg;
+  document.getElementById("overlay").classList.add("show");
+}
+function hideOverlay() {
+  document.getElementById("overlay").classList.remove("show");
+}
+function showAlert(type, msg) {
+  document.getElementById("alertBox").innerHTML =
+    `<div class="alert alert-${type} alert-dismissible py-2 fade show">
+       <i class="bi bi-exclamation-triangle me-1"></i>${esc(msg)}
+       <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+     </div>`;
+}
+function clearAlert() { document.getElementById("alertBox").innerHTML = ""; }
+function showJQL(jql) {
+  document.getElementById("jqlBox").textContent = jql;
+  document.getElementById("jqlRow").classList.remove("d-none");
+}
+function truncate(s, n) { return s && s.length > n ? s.slice(0,n)+"…" : (s||""); }
+function esc(s) {
+  const d = document.createElement("div");
+  d.appendChild(document.createTextNode(s||""));
+  return d.innerHTML;
+}
+
+// =====================================================================
+// Org Context modal
+// =====================================================================
+let _contextModal = null;
+
+function openContextModal() {
+  if (!_contextModal) {
+    _contextModal = new bootstrap.Modal(document.getElementById("contextModal"));
+  }
+  document.getElementById("contextAlert").innerHTML = "";
+  document.getElementById("contextStatus").textContent = "Loading…";
+  document.getElementById("contextEditor").value = "";
+  _contextModal.show();
+  fetch("/api/context")
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        document.getElementById("contextAlert").innerHTML =
+          `<div class="alert alert-danger py-1">${esc(data.error)}</div>`;
+        return;
+      }
+      document.getElementById("contextEditor").value = data.content;
+      document.getElementById("contextStatus").textContent = "org_context.yaml loaded";
+    })
+    .catch(e => {
+      document.getElementById("contextAlert").innerHTML =
+        `<div class="alert alert-danger py-1">Failed to load: ${esc(String(e))}</div>`;
+    });
+}
+
+function saveOrgContext() {
+  const content = document.getElementById("contextEditor").value;
+  document.getElementById("contextStatus").textContent = "Saving…";
+  document.getElementById("contextAlert").innerHTML = "";
+  fetch("/api/context", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({content}),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) {
+      document.getElementById("contextAlert").innerHTML =
+        `<div class="alert alert-danger py-1"><strong>YAML error:</strong> ${esc(data.error)}</div>`;
+      document.getElementById("contextStatus").textContent = "Save failed — fix YAML errors above.";
+      return;
+    }
+    document.getElementById("contextStatus").textContent = "✓ Saved — applies to next analysis.";
+    document.getElementById("contextAlert").innerHTML =
+      `<div class="alert alert-success py-1">Context saved and cache refreshed.</div>`;
+  })
+  .catch(e => {
+    document.getElementById("contextAlert").innerHTML =
+      `<div class="alert alert-danger py-1">Network error: ${esc(String(e))}</div>`;
+    document.getElementById("contextStatus").textContent = "Save failed.";
+  });
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

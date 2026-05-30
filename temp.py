@@ -120,3 +120,18 @@ sample_string= "core.151755310.2012-04-19.12_19_50.nz"
 
 match =sample_string.startswith("core.")
 print("Test6 match:", match)
+
+""" access Jira API to fetch the details of the issue and print the summary and description of the issue. """
+from jira import JIRA
+
+jira = JIRA(
+    server=" https://jira.ngage.netapp.com",
+    token_auth="ODQ2Mzc5NzIwMTMxOmlV9HWBWemi4GuzntuAG3lh1Sy8"
+)
+
+issue = jira.issue("CFSHELF-3926")
+print(issue.fields.summary)
+print(issue.fields.description)
+print(issue.fields.status.name)
+print(issue.fields.reporter.displayName)
+print(issue.fields.subtasks)

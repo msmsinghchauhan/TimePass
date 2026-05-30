@@ -1,0 +1,154 @@
+# ============================================================================
+# BugBuddy — Organization Context
+# ============================================================================
+# This file is injected into every LLM prompt so the AI understands your
+# internal terminology, product components, and architecture.
+#
+# Edit freely — changes take effect on the next analysis (no server restart).
+# All sections are optional. Leave empty or delete what you don't need.
+# ============================================================================
+
+# -------------------------------
+# Product / product line overview
+# -------------------------------
+product:
+  name: "NetApp ONTAP / StorageGRID / Element OS"
+  description: >
+    NetApp's enterprise storage operating systems powering SAN/NAS/object
+    storage. ONTAP runs on AFF (all-flash) and FAS (hybrid) systems in a
+    clustered HA topology. Nodes communicate over the cluster interconnect.
+    The WAFL copy-on-write filesystem manages all I/O with consistency groups.
+
+# -------------------------------
+# Jira project keys → purpose
+# -------------------------------
+jira_projects:
+  CFSHELF:  "Disk shelf firmware and FC / SAS / NVMe shelf management"
+  ONTAP:    "Core ONTAP operating system (scheduler, WAFL, networking)"
+  CLOUD:    "Cloud Volumes ONTAP — AWS / Azure / GCP"
+  ARI:      "Auto-remediation infrastructure — automated test harness"
+  QE:       "QE platform tooling and test automation frameworks"
+
+# -------------------------------
+# Internal component / subsystem glossary
+# -------------------------------
+components:
+  WAFL:
+    full_name: "Write Anywhere File Layout"
+    description: >
+      NetApp's proprietary copy-on-write filesystem. All writes go to NVRAM
+      first, then flushed to disk in consistency points (CP). Critical for
+      understanding data-path bugs.
+
+  NVRAM:
+    full_name: "Non-Volatile RAM"
+    description: >
+      Battery/flash-backed RAM used as a write-ahead log. Data is replicated
+      to the HA partner's NVRAM. Loss of NVRAM sync causes failover.
+
+  RDB:
+    full_name: "Replicated Database"
+    description: >
+      Distributed key-value configuration store across all cluster nodes.
+      Used for volume, LIF, and aggregate metadata. Quorum required for writes.
+
+  LIF:
+    full_name: "Logical Interface"
+    description: >
+      Virtual network endpoint that can migrate between physical ports and
+      nodes (LIF migration). Types: data, cluster, node-mgmt, intercluster.
+
+  SFO:
+    full_name: "Storage Failover"
+    description: >
+      HA failover mechanism. On node panic or halt, partner node takes over
+      its storage (giveback restores ownership). Critical for HA test scenarios.
+
+  ACP:
+    full_name: "Alternate Control Path"
+    description: >
+      Redundant out-of-band management path for disk shelves via Ethernet.
+      Used when the primary SAS/FC path fails. ACP daemon runs on the node.
+
+  SHELF / CFSHELF:
+    full_name: "Disk Shelf / Shelf Firmware"
+    description: >
+      Physical storage enclosures (DS224C, DS460C, NS224 NVMe shelves).
+      Each shelf has IOM modules with firmware managed by the shelf subsystem.
+      Shelf firmware updates are online and non-disruptive.
+
+  AGGR:
+    full_name: "Aggregate"
+    description: >
+      Physical grouping of disks (RAID groups) that forms an ONTAP storage pool.
+      FlexVols and FlexGroups are hosted on aggregates. Can be SSD, HDD, or hybrid.
+
+  FPolicy:
+    full_name: "File Policy Engine"
+    description: >
+      Event notification framework for file-access events. External FPolicy
+      servers subscribe to events (create, rename, delete) for auditing,
+      AV scanning, or data classification.
+
+  SM:
+    full_name: "SnapMirror"
+    description: >
+      NetApp replication technology for DR and data distribution.
+      Types: async (XDP), sync (SM-S), BusinessContinuity (SMBC/SnapMirror active sync).
+
+  SC:
+    full_name: "SnapCenter"
+    description: >
+      Backup and recovery orchestration platform integrating with ONTAP Snapshots,
+      SnapMirror, and SnapVault for application-consistent backups.
+
+# -------------------------------
+# Internal acronyms / abbreviations
+# -------------------------------
+acronyms:
+  CP:      "Consistency Point — WAFL checkpoint where dirty pages are flushed to disk"
+  CVO:     "Cloud Volumes ONTAP"
+  NVMe-oF: "NVMe over Fabrics — connects NVMe SSDs via FC-NVMe or RoCE"
+  ZAPI:    "NetApp proprietary API (legacy) — being replaced by REST API"
+  REST:    "ONTAP REST API — modern management interface (9.6+)"
+  MSID:    "Master SVM ID — unique identifier for an SVM (Storage Virtual Machine)"
+  SVM:     "Storage Virtual Machine — tenant / data-serving container in ONTAP"
+  IPspace: "Isolated network namespace within ONTAP for routing separation"
+  glenmo:  "Internal release codename (e.g. glenmo.041x = release branch 41.x)"
+  MMC:     "Multi-Mode Config — aggregated 802.3ad link config for cluster ports"
+  DSM:     "Disk Sanitize Module — secure disk erasure before decommission"
+
+# -------------------------------
+# Test environment / lab terminology
+# -------------------------------
+test_environment:
+  simulators:
+    - "ONTAP Simulator (vsim) — VM-based ONTAP for functional testing"
+    - "NetSim — network simulation layer used with vsim clusters"
+  frameworks:
+    - "ATF (Automated Test Framework) — internal Python-based test runner"
+    - "ZephyrScale — test case management integrated with Jira"
+    - "Jenkins / ARI — CI/CD pipeline for nightly regression"
+  environments:
+    - "Lab cluster: physical hardware in the test lab (sims are separate)"
+    - "NightlyReg: automated nightly regression suite label in Jira"
+
+# -------------------------------
+# Free-form architecture notes
+# (anything else the LLM should know)
+# -------------------------------
+architecture_notes: |
+  ONTAP cluster topology: 2–24 nodes, each node pair is an HA pair sharing a
+  disk shelf pool. Only one node in an HA pair owns a given aggregate at a time.
+
+  Data path for NAS: Client → LIF → SVM → FlexVol → WAFL → RAID → Disk
+  Data path for SAN: Initiator → FC/iSCSI LIF → LUN → WAFL → RAID → Disk
+
+  A "panic" is a kernel crash. ONTAP generates an EMS (Event Management System)
+  log entry and core file. Core files are analysed to find the root cause.
+
+  Bugs filed as "regression" in Jira mean a previously-passing test now fails —
+  often caused by a code change in the current release branch (e.g. glenmo.041x).
+
+  When reading Jira comments, note: "customer found" means production impact;
+  "found in ATF" means caught by automation; "found in lab" means manual test.
