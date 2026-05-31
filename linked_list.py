@@ -60,14 +60,75 @@ class LinkedList:
             temp2=temp.next
             temp.next=new_node
             new_node.next=temp2
+    
+    def delete_at_position(self,position):
+        if self.head is None:
+            raise IndexError("Position out of bounds")
+        if position == 0:
+            temp=self.head
+            self.head=self.head.next
+            del temp
+        else:
+            temp_prev=None
+            temp=self.head
+            while position-1 and temp is not None :
+                temp_prev=temp
+                temp=temp.next
+                position-=1
+            if temp is None:
+                raise IndexError("Position out of bounds")
+            temp_prev.next=temp.next
+            temp.next=None
+            del temp
+
+    def merge_sorted(self,other):
+        if self.head is None and other.head is None:
+            return None
+        elif self.head is None and other.head is not None:
+            return other
+        elif self.head is not None and other.head is None:
+            return self
+        else:
+            if self.head.data < other.head.data :
+                temp=self.head
+                self.head=self.head.next
+            else:
+                temp=other.head
+                other.head=other.head.next         
+            tail=temp
+            while self.head is not None and other.head is not None:
+                if self.head.data < other.head.data :
+                   tail.next=self.head
+                   tail=tail.next 
+                   self.head=self.head.next
+                else:  
+                    tail.next=other.head
+                    tail=tail.next
+                    other.head=other.head.next  
+
+            while self.head is not None: 
+                tail.next=self.head
+                tail=tail.next
+                self.head=self.head.next
+            while other.head is not None:
+                tail.next=other.head
+                tail=tail.next
+                other.head=other.head.next
+            tail.next=None
+            merged_list=LinkedList()
+            merged_list.head=temp
+            return merged_list
 
 
+       
 if __name__ == "__main__":
     data=[1,2,3,4,5]
+    data1=[10,20,30]
     linked_list=LinkedList()
     for item in data:
         linked_list.append(item)
     linked_list.print_list()
+    """
     print("Reversing the linked list")
     linked_list.reverse()
     linked_list.print_list()
@@ -80,10 +141,18 @@ if __name__ == "__main__":
     print("Inserting 20 at position 0")
     linked_list.insert_at_position(0,20)
     linked_list.print_list()
-    print("Inserting 30 at position 10")
-    linked_list.insert_at_position(10,30)
+    #print("Inserting 30 at position 10")
+    #linked_list.insert_at_position(10,30)
     linked_list.print_list()
-        
+    """
+    linked_list2=LinkedList()
+    for item in data1:
+        linked_list2.append(item)
+    linked_list2.print_list()
+    print("Merging the two linked lists")
+    merged_list=linked_list.merge_sorted(linked_list2)
+    merged_list.print_list()
+
 
 
         
