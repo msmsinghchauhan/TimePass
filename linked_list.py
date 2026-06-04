@@ -119,7 +119,37 @@ class LinkedList:
             merged_list.head=temp
             return merged_list
 
+    def find_cycle(self):
+        slow_pointer=self.head
+        fast_pointer=self.head
+        while slow_pointer is not None and fast_pointer is not None and fast_pointer.next is not None:
+            slow_pointer=slow_pointer.next
+            fast_pointer=fast_pointer.next.next
+            if slow_pointer==fast_pointer:
+                return True
+        return False
+    
+    def find_cycle_start(self):
+        visited_nodes=set()
+        slow_pointer=self.head
+        
+        while slow_pointer is not None and fast_pointer is not None and fast_pointer.next is not None:
+            slow_pointer=slow_pointer.next
+            if fast_pointer.next  not in visited_nodes:
+                visited_nodes.add(fast_pointer.next)
+            else: 
+                return fast_pointer
+            if fast_pointer.next.next  not in visited_nodes:
+                visited_nodes.add(fast_pointer.next.next)
+            else: 
+                return fast_pointer.next.next
+            fast_pointer=fast_pointer.next.next
+        return None
+            
+                
 
+                
+            
        
 if __name__ == "__main__":
     data=[1,2,3,4,5]
