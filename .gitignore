@@ -13,3 +13,7 @@ TimePass/
 # ChromaDB
 c16cf1f8-9505-42d6-ac5b-2abb15d657dc/
 e4349b73-be99-43c8-bad2-3b456c2b2c3c/
+
+__pycache__/
+*.pyc
+.pytest_cache/
