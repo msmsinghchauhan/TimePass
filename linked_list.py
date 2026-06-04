@@ -132,20 +132,17 @@ class LinkedList:
     def find_cycle_start(self):
         visited_nodes=set()
         slow_pointer=self.head
+        previous_node=None
         
-        while slow_pointer is not None and fast_pointer is not None and fast_pointer.next is not None:
-            slow_pointer=slow_pointer.next
-            if fast_pointer.next  not in visited_nodes:
-                visited_nodes.add(fast_pointer.next)
-            else: 
-                return fast_pointer
-            if fast_pointer.next.next  not in visited_nodes:
-                visited_nodes.add(fast_pointer.next.next)
-            else: 
-                return fast_pointer.next.next
-            fast_pointer=fast_pointer.next.next
-        return None
+        while slow_pointer is not None :
             
+            if slow_pointer  not in visited_nodes:
+                visited_nodes.add(slow_pointer)
+            else: 
+                break
+            previous_node=slow_pointer
+            slow_pointer=slow_pointer.next
+        return (previous_node,slow_pointer)           
                 
 
                 
