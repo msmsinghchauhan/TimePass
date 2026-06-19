@@ -1,7 +1,7 @@
-
+""" 
 import re 
 
-input_string = """Canister firmware : E70D
+# input_string = r'''Canister firmware : E70D
 Canister firmware date : 2025-03-20T14:58:07+00:00
 Canister build type : Release
 Canister commit hash : 481b01531489ffbfb735c2246bbeb306a872d7b2
@@ -31,12 +31,12 @@ PSU 1 VPD structure : 0x01
 PSU 2 VPD structure : 0x01
 PSU 1 VPD CRC : 0x14EF40F6
 PSU 2 VPD CRC : 0xC648FF60
-Canister Slot(Mode) : 0(S)"""
-
+Canister Slot(Mode) : 0(S)'''
+"""
 ## Test 1
 
 """
-pattern = r"Canister\s* Slot\(Mode\)\s*:\s*\d+\((\w+)\)"
+'''pattern = r"Canister\s* Slot\(Mode\)\s*:\s*\d+\((\w+)\)"'''
 mode = re.search(pattern, input_string)
 shelf_mode=mode.group(1)  # Fetch the value matched within the parentheses
 print(shelf_mode)
@@ -71,10 +71,15 @@ del dct[dct["1"]]
 print(dct)
 
 """
+
+
+
+
+""" 
 ## Test 2
 import re
 
-disk_num = re.findall("\d+\.\d+\.(\d+)", "2.2.10")
+'''disk_num = re.findall("\d+\.\d+\.(\d+)", "2.2.10")'''
 print(disk_num)
 for item in disk_num:
     print(item)
@@ -121,7 +126,7 @@ sample_string= "core.151755310.2012-04-19.12_19_50.nz"
 match =sample_string.startswith("core.")
 print("Test6 match:", match)
 
-""" access Jira API to fetch the details of the issue and print the summary and description of the issue. """
+''' access Jira API to fetch the details of the issue and print the summary and description of the issue. '''
 from jira import JIRA
 
 jira = JIRA(
@@ -135,3 +140,6 @@ print(issue.fields.description)
 print(issue.fields.status.name)
 print(issue.fields.reporter.displayName)
 print(issue.fields.subtasks)
+
+""" 
+

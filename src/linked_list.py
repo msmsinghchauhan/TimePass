@@ -142,6 +142,8 @@ class LinkedList:
                 break
             previous_node=slow_pointer
             slow_pointer=slow_pointer.next
+        if slow_pointer is None:
+            return (None, None)
         return (previous_node,slow_pointer)           
                 
 
