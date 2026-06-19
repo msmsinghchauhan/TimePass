@@ -13,8 +13,6 @@ triggers {
  stage('Execute Automation Script') {
  steps {
  echo 'Running the specified validation script from TimePass ...'
- 
- 
  sh '''
   pip install pytest 
 
@@ -38,7 +36,6 @@ triggers {
 //}
 
 //}
-
 
 }
 
