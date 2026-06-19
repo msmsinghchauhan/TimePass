@@ -15,8 +15,7 @@ triggers {
  echo 'Running the specified validation script from TimePass ...'
  sh '''
   pip install pytest 
-
- mkdir -p reports
+  mkdir -p reports
  python -m pytest tests/ --junitxml=reports/test_results.xml
  '''
  
