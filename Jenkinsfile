@@ -14,6 +14,9 @@ triggers {
  steps {
  echo 'Running the specified validation script from TimePass ...'
  sh '''
+  python3 -m venv venv || virtualenv venv
+  . venv/bin/activate
+  pip install --upgrade pip
   pip install pytest 
   mkdir -p reports
  python -m pytest tests/ --junitxml=reports/test_results.xml
