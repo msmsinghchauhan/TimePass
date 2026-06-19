@@ -11,8 +11,8 @@ triggers {
  
  
  sh '''
- sudo apt-get update || apt-get update
- sudo apt-get install -y python3 python3-pip || apt-get install -y python3 python3-pip
+ apt-get update || apt-get update
+ apt-get install -y python3 python3-pip || apt-get install -y python3 python3-pip
  pip3 install pytest --break-system-packages || pip3 install pytest
 
  mkdir -p reports
