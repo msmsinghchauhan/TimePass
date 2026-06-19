@@ -23,7 +23,7 @@ post {
 
 always {
 
-junit  allowEmptyResults: true, testResults: 'reports/test_results.xml'
+//junit  allowEmptyResults: true, testResults: 'reports/test_results.xml'
 
 
 
