@@ -1,12 +1,39 @@
 pipeline {
-    agent any
-    stages {
-        stage('GitHub Trigger Test') {
-            steps {
-                echo 'Success! GitHub successfully triggered this local Jenkins build.'
-            }
-        }
-    }
+ agent any
+triggers {
+                githubPush()
+}
+
+ stages {
+ stage('Execute Automation Script') {
+ steps {
+ echo 'Running the specified validation script from TimePass ...'
+ 
+ 
+ sh '''
+ python -m pytest tests/ --junitxml=reports/test_results.xml
+ '''
+ 
+ }
+ }
+ }
+
+post {
+
+always {
+
+junit  ‘ reports/test_results.xml’
+}
+
+always {
+
+mail bcc: '', body: '\'Check the results here: ${BUILD_URL}\'', cc: '', from: '', replyTo: '', subject: 'TimePass test script  execution result', to: 'msmsinghchauhan@gmail.com'
+
+}
+
+}
+
+
 }
 
 
