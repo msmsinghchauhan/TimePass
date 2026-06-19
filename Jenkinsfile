@@ -23,9 +23,9 @@ post {
 always {
 
 junit  'reports/test_results.xml'
-}
 
-always {
+
+
 
 mail bcc: '', body: '\'Check the results here: ${BUILD_URL}\'', cc: '', from: '', replyTo: '', subject: 'TimePass test script  execution result', to: 'msmsinghchauhan@gmail.com'
 
