@@ -18,7 +18,6 @@ triggers {
   mkdir -p reports
  python -m pytest tests/ --junitxml=reports/test_results.xml
  '''
- 
  }
  }
  }
