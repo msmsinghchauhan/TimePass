@@ -1,5 +1,10 @@
 pipeline {
- agent any
+ agent {
+docker { 
+            image 'python:3.11-slim' 
+        }
+ }
+ 
 triggers {
                 githubPush()
 }
@@ -11,9 +16,7 @@ triggers {
  
  
  sh '''
- apt-get update || apt-get update
- apt-get install -y python3 python3-pip || apt-get install -y python3 python3-pip
- pip3 install pytest --break-system-packages || pip3 install pytest
+  pip install pytest 
 
  mkdir -p reports
  python -m pytest tests/ --junitxml=reports/test_results.xml
