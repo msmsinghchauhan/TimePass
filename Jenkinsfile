@@ -22,7 +22,7 @@ post {
 
 always {
 
-junit  ‘ reports/test_results.xml’
+junit  'reports/test_results.xml'
 }
 
 always {
