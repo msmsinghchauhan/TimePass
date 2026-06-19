@@ -19,20 +19,18 @@ triggers {
  }
  }
 
-post {
+//post {
 
 //always {
 
 //junit  allowEmptyResults: true, testResults: 'reports/test_results.xml'
 
 
-
-
 //mail bcc: '', body: '\'Check the results here: ${BUILD_URL}\'', cc: '', from: '', replyTo: '', subject: 'TimePass test script  execution result', to: 'msmsinghchauhan@gmail.com'
 
 //}
 
-}
+//}
 
 
 }
