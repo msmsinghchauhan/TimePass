@@ -79,7 +79,7 @@ print(dct)
 ## Test 2
 import re
 
-'''disk_num = re.findall("\d+\.\d+\.(\d+)", "2.2.10")'''
+'''disk_num = re.findall("\d+\.\d+\.(\d+)", "2.2.10")
 print(disk_num)
 for item in disk_num:
     print(item)

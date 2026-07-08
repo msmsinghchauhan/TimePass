@@ -346,10 +346,13 @@ def print_inverted_pyramid(rows):
         # Combine and print the row
         print(spaces + stars)
 
+#print_pyramid(8)       
+#print_inverted_pyramid(10)
+
 import os
 
 def print_files_recursively(directory):
+    pass
     
 
-#print_pyramid(8)       
-#print_inverted_pyramid(10)
+

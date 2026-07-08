@@ -4,6 +4,16 @@ class Node:
         self.data=value
         self.next=None
 
+
+class DoublyNode:
+    def __init__(self,key:int|None=None,value:int|None=None):
+        self.key=key
+        self.value=value
+        self.next=None
+        self.prev=None
+
+
+
 class LinkedList:
     def __init__(self):
         self.head=None
@@ -147,9 +157,86 @@ class LinkedList:
         return (previous_node,slow_pointer)           
                 
 
-                
-            
-       
+class DoublyLinkedList:
+    def __init__(self):
+        self.head=None
+        self.tail=None
+    def add_node(self,key:int|None=None,value:int|None=None):
+        ## Add a new node to a doubly linked list whic is empty
+        if self.head is None and self.tail is None:
+            self.head=DoublyNode(key,value)
+            self.tail=self.head
+        else:
+            temp=DoublyNode(key,value)
+            prev_node=self.tail
+            self.tail.next=temp
+            self.tail=temp
+            self.tail.prev=prev_node
+            self.tail.next=None
+    def add_node_at_start(self,key:int|None,value:int|None):
+        ## Add a new node to a doubly linked list whic is empty  
+        node=DoublyNode(key,value)
+        if self.head is None and self.tail is None:
+            self.head=node
+            self.tail=node 
+            self.head.prev=None
+            self.tail.next=None
+        else:
+            node.next=self.head
+            node.prev=None
+            self.head.prev=node
+            self.head=node
+
+    def remove_node_by_reference(self,node:DoublyNode):
+        ## If the list from where a given node is to be removed is empty
+        if self.head is None and self.tail is None:
+            return
+        ## if the node to be deleted is the head node 
+        if node==self.head:
+            node.next.prev=None
+            self.head=node.next
+        ## if the node to be deleted is the tail node
+        elif node== self.tail:
+            node.prev.next=None
+            self.tail=node.prev 
+        ## if the node to be deleted is in the middle
+        else:    
+            node.prev.next=node.next
+            node.next.prev=node.prev
+            node.next=None
+            node.prev=None
+            del node
+
+    def add_node_at_start_by_reference(self,node:DoublyNode):
+        # Add a new node to a doubly linked list which is empty
+        if self.head is None and self.tail is None:
+            self.head=node
+            node.prev=None
+            node.next=None
+            self.tail=node
+        else:
+            ## Add a new node at the start of the doubly list
+            node.next=self.head
+            node.prev=None
+            self.head.prev=node
+            self.head=node
+    def print_list(self):
+        temp=self.head
+        while temp is not None:
+            print(f"Key:{temp.key}, Value:{temp.value}")
+            temp=temp.next
+    def is_first_node(self,node:DoublyNode)->bool:
+        if node==self.head:
+            return True
+        return False
+    def is_last_node(self,node:DoublyNode)->bool:
+        if node==self.tail:
+            return True
+        return False
+    
+
+        
+
 
 
 
