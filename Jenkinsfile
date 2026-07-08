@@ -1,5 +1,7 @@
 pipeline {
- agent any
+ agent  any
+
+ 
 triggers {
                 githubPush()
 }
@@ -8,31 +10,30 @@ triggers {
  stage('Execute Automation Script') {
  steps {
  echo 'Running the specified validation script from TimePass ...'
- 
- 
  sh '''
+  python3 -m venv venv || virtualenv venv
+  . venv/bin/activate
+  pip install --upgrade pip
+  pip install pytest 
+  mkdir -p reports
  python -m pytest tests/ --junitxml=reports/test_results.xml
  '''
- 
  }
  }
  }
 
-post {
+//post {
 
-always {
+//always {
 
-junit  ‘ reports/test_results.xml’
-}
+//junit  allowEmptyResults: true, testResults: 'reports/test_results.xml'
 
-always {
 
-mail bcc: '', body: '\'Check the results here: ${BUILD_URL}\'', cc: '', from: '', replyTo: '', subject: 'TimePass test script  execution result', to: 'msmsinghchauhan@gmail.com'
+//mail bcc: '', body: '\'Check the results here: ${BUILD_URL}\'', cc: '', from: '', replyTo: '', subject: 'TimePass test script  execution result', to: 'msmsinghchauhan@gmail.com'
 
-}
+//}
 
-}
-
+//}
 
 }
 
