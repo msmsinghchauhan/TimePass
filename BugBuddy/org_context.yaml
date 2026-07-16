@@ -52,6 +52,43 @@ components:
       Distributed key-value configuration store across all cluster nodes.
       Used for volume, LIF, and aggregate metadata. Quorum required for writes.
 
+  PERST#:
+    full_name: "PCI Express Reset (active-low)"
+    description: >
+      Dedicated physical pin on the PCIe connector driven by the host root
+      complex to the endpoint. When asserted (LOW), the PCIe endpoint is held
+      in full reset — LTSSM forced to Detect state, controller firmware halted,
+      all internal state machines reset to power-on defaults, all queues/BAR
+      mappings cleared (NAND/persistent data untouched). When deasserted (HIGH),
+      the endpoint executes its full bring-up sequence: LTSSM trains
+      (Detect → Polling → Configuration → L0), firmware loads from flash,
+      NVMe controller initializes, volume-open sequence runs, namespace metadata
+      is read, and finally CSTS.RDY=1 is set signalling controller ready.
+      PERST# is the slowest reset type — the physical PCIe link must retrain
+      from scratch. In test environments a drive power-cycle also toggles PERST#.
+      Key failure mode: if volume-open reads corrupted metadata after PERST#
+      deassert, the controller never reaches CSTS.RDY=1 and the PCIe link is
+      never signalled UP — the host sees the device as absent from lspci even
+      though the physical layer trained successfully. This is distinct from a
+      PHY failure; it is a firmware initialization failure post-reset.
+    reset_types:
+      PERST#:    "Full power-on reset — slowest, rebuilds physical link + firmware"
+      FLR:       "Function-Level Reset — resets PCI function without link retrain"
+      Hot-Reset: "In-band reset via TS1 ordered sets — no pin toggling"
+      NSSR:      "NVM Subsystem Reset — NVMe-layer reset, no PCIe link down"
+    ltssm_states:
+      - "Detect"
+      - "Polling"
+      - "Configuration"
+      - "L0 (active)"
+      - "L0s / L1 (power management)"
+      - "Recovery"
+      - "Hot Reset"
+    pin_locations:
+      "M.2":   "Pin 6 (PERST# = DEVSLP on some pinouts — check spec)"
+      "U.2":   "Dedicated PERST# pin in SFF-8639 connector"
+      "PCIe slot": "Pin B22"
+
   LIF:
     full_name: "Logical Interface"
     description: >

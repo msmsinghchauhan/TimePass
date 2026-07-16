@@ -354,5 +354,44 @@ import os
 def print_files_recursively(directory):
     pass
     
+def find_complement_brute_force(lst1,lst2,target):
+    sum_pairs=[]
+    for item1 in lst1:
+        complement=target-item1
+        if complement in lst2:
+            sum_pairs.append((item1,complement))
+    return sum_pairs
 
+def find_complement_optimized(lst1,lst2,target):
+    sum_pairs=[]
+    dct=dict()
+    for item in lst2:
+        dct[target-item]=item
+    for item in lst1:
+        if item in dct:
+            sum_pairs.append((item,dct[item]))
+    return sum_pairs
 
+def find_complement_set(lst1,lst2,target):
+    sum_pairs=[]
+    lst2_set=set(lst2)
+    for item in lst1:
+        complement=target-item
+        if complement in lst2_set:
+            sum_pairs.append((item,complement))
+    return sum_pairs
+
+def maximum_commnon_prefix(strs):
+    if not strs:
+        return ""
+    res=""
+    min_length=min(map(len,strs))
+
+    if min_length==0:
+        return res
+    for i in range(min_length):
+        for j in range(1,len(strs)):
+            if strs[j][i]!=strs[0][i]:
+                return res
+        res+=strs[0][i]
+    return res
