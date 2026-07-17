@@ -17,6 +17,13 @@ Environment variables (or edit JIRA_* constants below):
     GOOGLE_API_KEY    Google Gemini key
     LLM_PROVIDER      openai | netapp | anthropic | gemini | mock  (default: mock)
     LLM_MODEL         model name override (defaults to first model for provider)
+    LLM_FALLBACK_CHAIN  comma-separated fallback providers e.g. "openai,anthropic"
+    REDIS_URL         Redis connection URL (default: redis://localhost:6379/0)
+    CHROMA_PERSIST_DIR  ChromaDB storage dir (default: ./chroma_store/)
+    EMBED_PROVIDER    sentence | openai | mock  (default: sentence)
+    JUDGE_PROVIDER    LLM-as-Judge provider  (default: openai)
+    JUDGE_MODEL       LLM-as-Judge model     (default: gpt-4o-mini)
+    TRACE_FILE        Optional path to JSONL observability trace file
 """
 
 from __future__ import annotations
@@ -24,8 +31,9 @@ from __future__ import annotations
 import io
 import os
 import json
+import threading
 
-from flask import Flask, jsonify, render_template, request, send_file, session
+from flask import Flask, Response, jsonify, render_template, request, send_file, session, stream_with_context
 from jira import JIRA
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -34,6 +42,10 @@ from jira_filter import FilterParams, JiraQueryEngine
 from jira_scrubber import JiraScrubber
 from llm_agent import LLMAgent, PROVIDERS, load_org_context, _ORG_CONTEXT_PATH
 from org_rag import get_config as get_org_knowledge_config
+from cache import BugBuddyCache
+from observability import tracer
+from embeddings import SemanticMemory
+from models import TestCaseFeedback
 
 # ---------------------------------------------------------------------------
 # Config
@@ -51,12 +63,14 @@ app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
 # ---------------------------------------------------------------------------
-# Shared Jira / LLM singletons (initialised lazily on first request)
+# Shared Jira / LLM / cache / memory singletons (lazy init)
 # ---------------------------------------------------------------------------
 
 _jira_client:  JIRA | None              = None
 _engine:       JiraQueryEngine | None   = None
 _scrubber:     JiraScrubber | None      = None
+_cache:        BugBuddyCache | None     = None
+_memory:       SemanticMemory | None    = None
 
 
 def _get_jira() -> JIRA:
@@ -64,6 +78,20 @@ def _get_jira() -> JIRA:
     if _jira_client is None:
         _jira_client = JIRA(server=JIRA_SERVER, token_auth=JIRA_TOKEN)
     return _jira_client
+
+
+def _get_cache() -> BugBuddyCache:
+    global _cache
+    if _cache is None:
+        _cache = BugBuddyCache()
+    return _cache
+
+
+def _get_memory() -> SemanticMemory:
+    global _memory
+    if _memory is None:
+        _memory = SemanticMemory()
+    return _memory
 
 
 def _get_engine() -> JiraQueryEngine:
@@ -477,6 +505,168 @@ def api_context_save():
         return jsonify({"ok": True})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
+
+
+# ---------------------------------------------------------------------------
+# New AI-layer endpoints
+# ---------------------------------------------------------------------------
+
+@app.route("/api/stream-analyse")
+def api_stream_analyse():
+    """SSE endpoint — streams pipeline progress events so the UI can show a live progress bar
+    instead of a spinner. Runs the same pipeline as the regular analyse endpoint.
+
+    Query params: issue_key (required)
+    Event format: data: {"stage": "rag"|"llm"|"done"|"error", ...}
+    """
+    issue_key = request.args.get("issue_key", "").strip().upper()
+    if not issue_key:
+        return jsonify({"error": "issue_key required"}), 400
+
+    def generate():
+        def _emit(stage: str, **kwargs) -> str:
+            payload = json.dumps({"stage": stage, **kwargs})
+            return f"data: {payload}\n\n"
+
+        try:
+            yield _emit("start", message=f"Starting analysis for {issue_key}")
+
+            # Cache check
+            cache = _get_cache()
+            cached = cache.get_llm(LLM_PROVIDER, LLM_MODEL or "", issue_key, issue_key)
+            if cached:
+                yield _emit("cache_hit", message="Returning cached result")
+                yield _emit("done", test_cases=cached)
+                return
+
+            # Jira scrape
+            yield _emit("scrape", message="Fetching Jira issue and attachments...")
+            scrubber = _get_scrubber()
+            scraped  = scrubber.scrub(issue_key)
+
+            # RAG
+            yield _emit("rag", message="Running RAG terminology lookup...")
+
+            # LLM
+            yield _emit("llm", message=f"Calling {LLM_PROVIDER} ({LLM_MODEL or 'default'})...")
+            agent = _make_llm()
+            test_cases = agent.generate_test_cases(scraped, scrubber)
+
+            # Evaluation
+            yield _emit("evaluate", message="Running LLM-as-Judge quality scoring...")
+
+            # Cache store
+            cache.set_llm(LLM_PROVIDER, LLM_MODEL or "", issue_key,
+                          issue_key, test_cases)
+
+            yield _emit("done", test_cases=test_cases)
+
+        except Exception as exc:
+            yield _emit("error", message=str(exc))
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control":   "no-cache",
+            "X-Accel-Buffering": "no",   # disable nginx buffering
+        },
+    )
+
+
+@app.route("/api/feedback", methods=["POST"])
+def api_feedback():
+    """Store user ratings on generated test cases back to ChromaDB metadata.
+    Ratings can later be used to weight retrieval in few-shot selection.
+
+    Body: {"issue_key": "CFSHELF-1234", "tc_number": "TC-001", "rating": 5, "comment": ""}
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        feedback = TestCaseFeedback.model_validate(data)
+        feedback.provider = LLM_PROVIDER
+        feedback.model    = LLM_MODEL or ""
+        # Store feedback in memory metadata
+        memory = _get_memory()
+        if memory.available:
+            memory._collection.update(
+                ids=[feedback.issue_key],
+                metadatas=[{
+                    "last_rating":   feedback.rating,
+                    "rating_comment": feedback.comment[:200],
+                }],
+            )
+        return jsonify({"status": "ok", "feedback": feedback.model_dump()})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.route("/api/stats")
+def api_stats():
+    """Aggregated metrics since server start: cache hit rate, avg latency,
+    token usage, estimated cost, quality scores, calls by provider.
+    """
+    obs   = tracer.get_stats()
+    cache = _get_cache().stats()
+    mem   = _get_memory().stats()
+    return jsonify({
+        "llm_calls":    obs,
+        "cache":        cache,
+        "vector_store": mem,
+        "providers":    list(PROVIDERS.keys()),
+    })
+
+
+@app.route("/api/stats/recent")
+def api_stats_recent():
+    """Return the 20 most recent LLM call trace records."""
+    n = min(int(request.args.get("n", 20)), 100)
+    return jsonify(tracer.recent(n))
+
+
+@app.route("/api/cache/invalidate", methods=["POST"])
+def api_cache_invalidate():
+    """Force-evict a cached result so the next request re-runs the full pipeline.
+
+    Body JSON: {"issue_key": "CFSHELF-1234", "tier": "all|scrape|llm|rag"}
+    """
+    data      = request.get_json(force=True) or {}
+    issue_key = data.get("issue_key", "").strip().upper()
+    tier      = data.get("tier", "all").lower()
+    if not issue_key:
+        return jsonify({"error": "issue_key required"}), 400
+
+    cache  = _get_cache()
+    evicted: list[str] = []
+    if tier in ("all", "scrape"):
+        cache.invalidate_scrape(issue_key)
+        evicted.append("scrape")
+    if tier in ("all", "llm"):
+        cache.invalidate_llm(LLM_PROVIDER, LLM_MODEL or "", issue_key, issue_key)
+        evicted.append("llm")
+
+    return jsonify({"issue_key": issue_key, "evicted_tiers": evicted})
+
+
+@app.route("/api/similar")
+def api_similar():
+    """Find semantically similar past analyses for an issue using vector search.
+    Query params: issue_key (required), top_k (default 3)
+    """
+    issue_key = request.args.get("issue_key", "").strip().upper()
+    top_k     = int(request.args.get("top_k", 3))
+    if not issue_key:
+        return jsonify({"error": "issue_key required"}), 400
+
+    try:
+        scrubber = _get_scrubber()
+        scraped  = scrubber.scrub(issue_key)
+        text     = scrubber.full_text(scraped)
+        memory   = _get_memory()
+        similar  = memory.retrieve_similar(text, top_k=top_k)
+        return jsonify({"issue_key": issue_key, "similar": similar})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 # ---------------------------------------------------------------------------

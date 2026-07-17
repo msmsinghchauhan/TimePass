@@ -17,12 +17,29 @@ model by passing model= or setting LLM_MODEL.
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import getpass
 import json
+import logging
 import os
 import re
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Provider fallback chain
+# ---------------------------------------------------------------------------
+# If the primary LLM call fails (rate limit, bad key, outage), retry with the
+# next provider in LLM_FALLBACK_CHAIN before giving up.
+# e.g. LLM_FALLBACK_CHAIN="openai,anthropic,gemini"
+_FALLBACK_CHAIN_ENV = os.getenv("LLM_FALLBACK_CHAIN", "")
+_FALLBACK_PROVIDERS: list[str] = (
+    [p.strip() for p in _FALLBACK_CHAIN_ENV.split(",") if p.strip()]
+    if _FALLBACK_CHAIN_ENV else []
+)
 
 # ---------------------------------------------------------------------------
 # Chunking constants  –  split oversized full_text so no data is ever lost
@@ -220,6 +237,10 @@ For each gap you find, produce a concrete test case that, had it existed in the
 test suite before the bug was reported, would have caught the defect and
 prevented it from reaching the field.
 
+Think step by step:
+  1. First identify the root cause described in the bug (or inferred from symptoms).
+  2. Then identify what test scenario would have triggered that root cause.
+  3. Then write the test case that covers that scenario.
 Focus on:
   - Boundary conditions and edge cases not covered
   - Mixed-state or mixed-version scenarios
@@ -246,7 +267,7 @@ Below is the full content of Jira issue {key}.
 Analyse what test design steps were MISSING that allowed this defect to be
 filed. Generate test cases that, had they been executed before the bug was
 reported, would have caught it and prevented it from reaching the field.
-
+{fewshot_block}
 {full_text}
 """
 
@@ -387,67 +408,202 @@ class LLMAgent:
     def generate_test_cases(self, scraped_issue: dict, scrubber=None) -> list[dict]:
         """Generate test cases for a scraped issue dict (from JiraScrubber.scrub()).
 
-        If the issue content is larger than _CHUNK_SIZE_CHARS the text is split
-        into overlapping chunks, each analysed independently, and the results
-        are merged and deduplicated — so NO content is ever discarded.
+        Pipeline:
+          1. Build full_text
+          2. Guardrails (PII redaction + injection check)
+          3. RAG glossary lookup
+          4. Few-shot retrieval from ChromaDB
+          5. Split into chunks if needed
+          6. LLM calls — concurrent for multi-chunk, with provider fallback
+          7. Pydantic output validation
+          8. Merge + deduplicate across chunks
+          9. LLM-as-Judge quality scoring
+         10. Store result in vector store
+         11. Emit observability trace
 
         Parameters
         ----------
         scraped_issue : dict returned by JiraScrubber.scrub()
-        scrubber      : JiraScrubber instance (used to call full_text(); if None,
-                        the method builds a simple text representation itself).
+        scrubber      : JiraScrubber instance (used to call full_text()).
         """
+        from guardrails import InputGuardrail, OutputGuardrail   # noqa: PLC0415
+        from models import parse_llm_output                       # noqa: PLC0415
+        from observability import tracer                          # noqa: PLC0415
+        from embeddings import SemanticMemory                     # noqa: PLC0415
+        from evaluator import TestCaseEvaluator                  # noqa: PLC0415
+
         if scrubber is not None:
             full_text = scrubber.full_text(scraped_issue)
         else:
             full_text = self._simple_text(scraped_issue)
 
         issue_key = scraped_issue.get("key", "UNKNOWN")
+        summary   = scraped_issue.get("summary", "")
 
-        # --- Step 1: fetch org-specific term definitions (optional, never fatal) ---
+        # --- Step 1: Guardrails ---
+        guard  = InputGuardrail()
+        grail  = guard.check(full_text, provider=self.provider)
+        if grail.blocked:
+            raise ValueError(f"Guardrail blocked input: {grail.reason}")
+        full_text = grail.text
+
+        # --- Step 2: RAG ---
         org_knowledge = ""
         if self.org_knowledge_key and self.provider != "mock":
             from org_rag import fetch_org_knowledge  # noqa: PLC0415
             org_knowledge = fetch_org_knowledge(full_text, self.org_knowledge_key)
 
-        # --- Step 2: split if needed, analyse, merge ---
-        chunks = self._split_chunks(full_text)
-        all_cases: list[list[dict]] = []
-        for i, chunk in enumerate(chunks, 1):
-            if len(chunks) > 1:
-                prompt = _USER_PROMPT_TEMPLATE_CHUNK.format(
-                    key=issue_key, chunk_num=i, total_chunks=len(chunks),
-                    full_text=chunk
-                )
-            else:
-                prompt = _USER_PROMPT_TEMPLATE.format(key=issue_key, full_text=chunk)
-            raw = self._call_provider(prompt, issue_key, org_knowledge)
-            all_cases.append(self._parse(raw))
+        # --- Step 3: Few-shot retrieval from vector store ---
+        memory    = SemanticMemory()
+        fewshot   = memory.build_fewshot_block(full_text) if memory.available else ""
 
-        return self._merge_test_cases(all_cases)
+        # --- Step 4: Split into chunks ---
+        chunks = self._split_chunks(full_text)
+
+        # --- Step 5: LLM calls (async for multi-chunk) with fallback ---
+        raw_outputs: list[str] = self._call_chunks_with_fallback(
+            chunks, issue_key, org_knowledge, fewshot
+        )
+
+        # --- Step 6: Pydantic output validation ---
+        output_guard = OutputGuardrail()
+        all_cases: list[list[dict]] = []
+        for i, raw in enumerate(raw_outputs):
+            if output_guard.is_refusal(raw):
+                log.warning("[%s] chunk %d: LLM returned a refusal", issue_key, i + 1)
+                continue
+            validated = parse_llm_output(raw, issue_key)
+            all_cases.append([tc.to_dict() for tc in validated])
+
+        merged = self._merge_test_cases(all_cases)
+
+        # --- Step 7: LLM-as-Judge quality scoring ---
+        try:
+            evaluator = TestCaseEvaluator(
+                provider=self.provider,
+                api_key=self.api_key,
+            )
+            merged = evaluator.evaluate(merged, issue_summary=summary)
+        except Exception as exc:
+            log.warning("[%s] Evaluator failed (non-fatal): %s", issue_key, exc)
+
+        # --- Step 8: Store in semantic memory ---
+        try:
+            memory.store(issue_key=issue_key, text=full_text, test_cases=merged)
+        except Exception as exc:
+            log.debug("[%s] SemanticMemory store failed: %s", issue_key, exc)
+
+        # --- Step 9: Emit observability trace ---
+        try:
+            with tracer.trace(self.provider, self.model, issue_key) as span:
+                span.set_guardrail(grail.blocked, grail.pii_redactions)
+                span.set_rag_used(bool(org_knowledge))
+                span.set_chunk(1, len(chunks))
+                avg_quality = (
+                    sum(tc.get("quality_score", 0) or 0 for tc in merged) / len(merged)
+                    if merged else 0
+                )
+                if avg_quality:
+                    span.set_quality(round(avg_quality, 2))
+        except Exception:
+            pass  # observability must never break the main flow
+
+        return merged
+
+    # --- chunk dispatch (concurrent + fallback) ---
+
+    def _call_chunks_with_fallback(
+        self,
+        chunks: list[str],
+        issue_key: str,
+        org_knowledge: str,
+        fewshot: str,
+    ) -> list[str]:
+        """Run one LLM call per chunk. Concurrent for large issues, serial for single chunks.
+        Falls through LLM_FALLBACK_CHAIN providers before giving up on a chunk.
+        """
+        def _build_prompt(i: int, chunk: str) -> str:
+            if len(chunks) > 1:
+                return _USER_PROMPT_TEMPLATE_CHUNK.format(
+                    key=issue_key, chunk_num=i + 1, total_chunks=len(chunks),
+                    full_text=chunk,
+                )
+            return _USER_PROMPT_TEMPLATE.format(
+                key=issue_key,
+                full_text=chunk,
+                fewshot_block=fewshot,
+            )
+
+        def _call_one(i_chunk: tuple[int, str]) -> str:
+            i, chunk = i_chunk
+            prompt = _build_prompt(i, chunk)
+            providers_to_try = [self.provider] + [
+                p for p in _FALLBACK_PROVIDERS if p != self.provider
+            ]
+            last_exc: Exception | None = None
+            for provider in providers_to_try:
+                try:
+                    return self._call_provider_explicit(
+                        prompt, issue_key, org_knowledge, provider
+                    )
+                except Exception as exc:
+                    log.warning(
+                        "[%s] chunk %d: provider %s failed (%s) — trying next",
+                        issue_key, i + 1, provider, exc,
+                    )
+                    last_exc = exc
+            raise RuntimeError(
+                f"All providers exhausted for {issue_key} chunk {i + 1}"
+            ) from last_exc
+
+        if len(chunks) == 1:
+            return [_call_one((0, chunks[0]))]
+
+        # Concurrent chunk processing via thread pool
+        max_workers = min(len(chunks), 4)  # cap at 4 parallel LLM calls
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {pool.submit(_call_one, (i, c)): i for i, c in enumerate(chunks)}
+            results: dict[int, str] = {}
+            for future in concurrent.futures.as_completed(futures):
+                idx = futures[future]
+                try:
+                    results[idx] = future.result()
+                except Exception as exc:
+                    log.error("[%s] chunk %d permanently failed: %s", issue_key, idx, exc)
+                    results[idx] = "[]"  # empty result for failed chunk
+        return [results[i] for i in range(len(chunks))]
+
+    def _call_provider_explicit(
+        self, prompt: str, issue_key: str, org_knowledge: str, provider: str
+    ) -> str:
+        """Call a specific provider (used for fallback routing)."""
+        if provider in ("openai", "netapp"):
+            base_url   = PROVIDERS[provider].get("base_url")
+            user       = getpass.getuser() if provider == "netapp" else None
+            verify_ssl = provider != "netapp"
+            key_env    = PROVIDERS[provider].get("key_env", "")
+            api_key    = self.api_key if provider == self.provider else os.getenv(key_env, "")
+            model      = self.model if provider == self.provider else PROVIDERS[provider]["models"][0]
+            return _call_openai(prompt, issue_key, model, api_key,
+                                base_url=base_url, user=user, verify_ssl=verify_ssl,
+                                org_knowledge=org_knowledge)
+        if provider == "anthropic":
+            key   = self.api_key if provider == self.provider else os.getenv("ANTHROPIC_API_KEY", "")
+            model = self.model if provider == self.provider else PROVIDERS["anthropic"]["models"][0]
+            return _call_anthropic(prompt, issue_key, model, key,
+                                   org_knowledge=org_knowledge)
+        if provider == "gemini":
+            key   = self.api_key if provider == self.provider else os.getenv("GOOGLE_API_KEY", "")
+            model = self.model if provider == self.provider else PROVIDERS["gemini"]["models"][0]
+            return _call_gemini(prompt, issue_key, model, key,
+                                org_knowledge=org_knowledge)
+        if provider == "mock":
+            return _call_mock(prompt, issue_key)
+        raise ValueError(f"Unknown provider: {provider!r}")
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-
-    def _call_provider(self, prompt: str, issue_key: str, org_knowledge: str) -> str:
-        """Dispatch a formatted prompt string to the configured LLM provider."""
-        if self.provider in ("openai", "netapp"):
-            base_url  = PROVIDERS[self.provider].get("base_url")
-            user      = getpass.getuser() if self.provider == "netapp" else None
-            verify_ssl = self.provider != "netapp"
-            return _call_openai(prompt, issue_key, self.model, self.api_key,
-                                base_url=base_url, user=user, verify_ssl=verify_ssl,
-                                org_knowledge=org_knowledge)
-        if self.provider == "anthropic":
-            return _call_anthropic(prompt, issue_key, self.model, self.api_key,
-                                   org_knowledge=org_knowledge)
-        if self.provider == "gemini":
-            return _call_gemini(prompt, issue_key, self.model, self.api_key,
-                                org_knowledge=org_knowledge)
-        if self.provider == "mock":
-            return _call_mock(prompt, issue_key)
-        raise ValueError(f"Unknown LLM provider: {self.provider!r}")
 
     @staticmethod
     def _split_chunks(text: str) -> list[str]:

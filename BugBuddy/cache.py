@@ -1,50 +1,15 @@
 """
-cache.py
---------
-Redis-backed caching layer for BugBuddy.
+cache.py — Redis cache for BugBuddy.
 
-Caches three expensive operations:
-  1. Jira issue scrape results  (TTL: 10 min — Jira data changes infrequently)
-  2. RAG org-knowledge glossary  (TTL: 1 hr  — terminology is stable)
-  3. LLM analysis results        (TTL: 24 hr — deterministic at temperature=0.2)
+Three TTL tiers:
+  bb:scrape:<KEY>          10 min  (Jira issue content)
+  bb:rag:<sha256>           1 hr   (org terminology glossary)
+  bb:llm:<provider:model:key:sha256>  24 hr  (LLM results)
 
-Cache keys are SHA-256 hashes of the input so identical inputs always hit.
-All values are JSON-serialised and gzip-compressed before storage to minimise
-Redis memory footprint for large Jira threads.
+All values are gzip+JSON encoded. If Redis is down the app continues
+unaffected — every call degrades silently to a cache miss.
 
-Graceful degradation: every public function catches connection/serialisation
-errors and falls back to None (cache miss) so BugBuddy works without Redis.
-
-Usage
------
-    from cache import BugBuddyCache
-
-    cache = BugBuddyCache()           # reads REDIS_URL env var (default localhost)
-
-    # Check before calling Jira
-    hit = cache.get_scrape(issue_key)
-    if hit is None:
-        hit = scrubber.scrub(issue_key)
-        cache.set_scrape(issue_key, hit)
-
-    # Check before calling RAG proxy
-    glossary = cache.get_rag(issue_text)
-    if glossary is None:
-        glossary = fetch_org_knowledge(issue_text)
-        cache.set_rag(issue_text, glossary)
-
-    # Check before calling LLM
-    result = cache.get_llm(provider, model, issue_key, full_text)
-    if result is None:
-        result = agent.analyse(issue_key)
-        cache.set_llm(provider, model, issue_key, full_text, result)
-
-Environment Variables
----------------------
-  REDIS_URL          Full Redis URL  (default: redis://localhost:6379/0)
-  CACHE_TTL_SCRAPE   Seconds for Jira scrape cache   (default: 600)
-  CACHE_TTL_RAG      Seconds for RAG glossary cache   (default: 3600)
-  CACHE_TTL_LLM      Seconds for LLM result cache     (default: 86400)
+Env vars: REDIS_URL, CACHE_TTL_SCRAPE, CACHE_TTL_RAG, CACHE_TTL_LLM
 """
 
 from __future__ import annotations
@@ -58,37 +23,27 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Defaults
-# ---------------------------------------------------------------------------
+# TODO: consider using a hash ring if we ever shard across multiple Redis nodes
+_REDIS_URL   = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+_TTL_SCRAPE  = int(os.getenv("CACHE_TTL_SCRAPE", "600"))
+_TTL_RAG     = int(os.getenv("CACHE_TTL_RAG", "3600"))
+_TTL_LLM     = int(os.getenv("CACHE_TTL_LLM", "86400"))
 
-_REDIS_URL       = os.getenv("REDIS_URL",          "redis://localhost:6379/0")
-_TTL_SCRAPE      = int(os.getenv("CACHE_TTL_SCRAPE", "600"))
-_TTL_RAG         = int(os.getenv("CACHE_TTL_RAG",    "3600"))
-_TTL_LLM         = int(os.getenv("CACHE_TTL_LLM",    "86400"))
-
-# Key prefixes — namespaced to avoid collisions if Redis is shared
+# Key prefixes
 _PFX_SCRAPE = "bb:scrape:"
 _PFX_RAG    = "bb:rag:"
 _PFX_LLM    = "bb:llm:"
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 def _sha256(text: str) -> str:
-    """Stable 64-char hex digest of a string."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _pack(value: Any) -> bytes:
-    """JSON-serialise then gzip-compress a Python value."""
     return gzip.compress(json.dumps(value, ensure_ascii=False).encode("utf-8"))
 
 
 def _unpack(raw: bytes) -> Any:
-    """Reverse of _pack."""
     return json.loads(gzip.decompress(raw).decode("utf-8"))
 
 
@@ -97,13 +52,7 @@ def _unpack(raw: bytes) -> Any:
 # ---------------------------------------------------------------------------
 
 class BugBuddyCache:
-    """Redis cache client for BugBuddy.
-
-    Parameters
-    ----------
-    redis_url : str, optional
-        Redis connection URL.  Defaults to the REDIS_URL env var.
-    """
+    """Thin Redis wrapper with three named tiers for BugBuddy data."""
 
     def __init__(self, redis_url: str | None = None) -> None:
         self._url = redis_url or _REDIS_URL
@@ -111,19 +60,18 @@ class BugBuddyCache:
         self._connect()
 
     def _connect(self) -> None:
-        """Attempt to connect to Redis.  Failures are non-fatal."""
         try:
             import redis  # noqa: PLC0415
             self._client = redis.Redis.from_url(
                 self._url,
                 socket_connect_timeout=2,
                 socket_timeout=2,
-                decode_responses=False,   # we handle bytes ourselves
+                decode_responses=False,
             )
             self._client.ping()
-            log.info("BugBuddyCache: connected to Redis at %s", self._url)
+            log.info("BugBuddyCache: connected to %s", self._url)
         except Exception as exc:
-            log.warning("BugBuddyCache: Redis unavailable (%s) — running without cache", exc)
+            log.warning("BugBuddyCache: Redis unavailable (%s) — no caching", exc)
             self._client = None
 
     @property
@@ -161,9 +109,7 @@ class BugBuddyCache:
         except Exception as exc:
             log.debug("Cache DEL error (%s) for key %s", exc, key)
 
-    # ------------------------------------------------------------------
-    # Jira scrape cache
-    # ------------------------------------------------------------------
+    # --- Jira scrape tier ---
 
     def _scrape_key(self, issue_key: str) -> str:
         return _PFX_SCRAPE + issue_key.upper()
@@ -180,9 +126,7 @@ class BugBuddyCache:
         """Force-evict the scrape cache for *issue_key*."""
         self._invalidate(self._scrape_key(issue_key))
 
-    # ------------------------------------------------------------------
-    # RAG glossary cache  (keyed on a hash of the input text)
-    # ------------------------------------------------------------------
+    # --- RAG glossary tier ---
 
     def _rag_key(self, text: str) -> str:
         return _PFX_RAG + _sha256(text[:4000])   # only first 4K is sent to RAG
@@ -195,9 +139,7 @@ class BugBuddyCache:
         """Store RAG glossary string."""
         self._set(self._rag_key(full_text), glossary, _TTL_RAG)
 
-    # ------------------------------------------------------------------
-    # LLM result cache  (keyed on provider + model + issue key + text hash)
-    # ------------------------------------------------------------------
+    # --- LLM result tier ---
 
     def _llm_key(self, provider: str, model: str, issue_key: str, full_text: str) -> str:
         content_hash = _sha256(full_text)
