@@ -24,8 +24,8 @@ async def process_data_in_batches(data, batch_size=10):
       result=[]
       for i in range(0,len(data),batch_size):
            
-           temp_data=data[i:i+batch_size]
-           tasks=[fetch_data(item) for item in temp_data]
+           chunk=data[i:i+batch_size]
+           tasks=[fetch_data(item) for item in chunk]
            batch_results = await asyncio.gather(*tasks)
            for temp_result in batch_results:
                 result.append(temp_result)

@@ -17,7 +17,11 @@ def group_anagrams(words):
         anagram_dict.setdefault(tuple(sorted(word.lower())),[]).append(word)    
     return anagram_dict.values()
 
-    
+def dct_merge(dct1,dct2):
+    for key,value in dct2.items():
+            dct1[key]=value
+        
+    return dct1
     
 if __name__ == "__main__":
     #sample_text = "hello world hello"
